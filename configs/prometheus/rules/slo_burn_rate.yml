@@ -1,0 +1,58 @@
+groups:
+  - name: slo_burn_rate.rules
+    rules:
+      - record: job:http_request_errors:rate5m
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])
+
+      - record: job:http_request_errors:rate1h
+        expr: rate(http_requests_total{status=~"5.."}[1h]) / rate(http_requests_total[1h])
+
+      - record: job:http_request_errors:rate6h
+        expr: rate(http_requests_total{status=~"5.."}[6h]) / rate(http_requests_total[6h])
+
+      - alert: SLOFastBurn
+        expr: |
+          (job:http_request_errors:rate1h > (14.4 * 0.01))
+          and
+          (job:http_request_errors:rate5m > (14.4 * 0.01))
+        for: 2m
+        labels:
+          severity: critical
+          slo: "error_rate_99"
+          window: "fast_burn"
+        annotations:
+          summary: "CRITICAL: SLO fast burn — error budget draining rapidly"
+          description: "Error rate {{ $value | humanizePercentage }}. At this rate the monthly budget exhausts in hours. Fast burn threshold: 14.4x."
+          dashboard_url: "http://13.61.147.12:3000/d/slo-error-budget/slo-error-budget"
+          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo_fast_burn.md"
+
+      - alert: SLOSlowBurn
+        expr: |
+          (job:http_request_errors:rate6h > (5 * 0.01))
+          and
+          (job:http_request_errors:rate1h > (5 * 0.01))
+        for: 15m
+        labels:
+          severity: warning
+          slo: "error_rate_99"
+          window: "slow_burn"
+        annotations:
+          summary: "WARNING: SLO slow burn — error budget draining steadily"
+          description: "Error rate {{ $value | humanizePercentage }} sustained over 6h. Budget will exhaust in days if trend continues."
+          dashboard_url: "http://13.61.147.12:3000/d/slo-error-budget/slo-error-budget"
+          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo_slow_burn.md"
+
+      - alert: LatencySLOFastBurn
+        expr: |
+          (histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[1h])) > 0.5)
+          and
+          (histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 0.5)
+        for: 2m
+        labels:
+          severity: critical
+          slo: "latency_p95_500ms"
+        annotations:
+          summary: "CRITICAL: Latency SLO violated — p95 above 500ms"
+          description: "p95 latency is {{ $value | humanizeDuration }}. SLO target: 500ms."
+          dashboard_url: "http://13.61.147.12:3000/d/slo-error-budget/slo-error-budget"
+          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo_fast_burn.md"

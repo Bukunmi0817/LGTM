@@ -1,0 +1,18 @@
+[Unit]
+Description=Tempo — Distributed Tracing Backend
+Documentation=https://grafana.com/docs/tempo/latest/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=tempo
+Group=tempo
+Type=simple
+ExecStart=/usr/local/bin/tempo \
+  --config.file=/etc/tempo/tempo-config.yml
+Restart=always
+RestartSec=5
+SyslogIdentifier=tempo
+
+[Install]
+WantedBy=multi-user.target

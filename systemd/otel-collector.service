@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenTelemetry Collector
+Documentation=https://opentelemetry.io/docs/collector/
+After=network-online.target loki.service tempo.service
+Wants=network-online.target
+
+[Service]
+User=otel
+Group=otel
+Type=simple
+ExecStart=/usr/local/bin/otelcol-contrib \
+  --config=/etc/otel/otel-collector.yml
+Restart=always
+RestartSec=5
+SyslogIdentifier=otel-collector
+
+[Install]
+WantedBy=multi-user.target

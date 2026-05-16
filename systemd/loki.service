@@ -1,0 +1,18 @@
+[Unit]
+Description=Loki — Log Aggregation System
+Documentation=https://grafana.com/docs/loki/latest/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=loki
+Group=loki
+Type=simple
+ExecStart=/usr/local/bin/loki \
+  --config.file=/etc/loki/loki-config.yml
+Restart=always
+RestartSec=5
+SyslogIdentifier=loki
+
+[Install]
+WantedBy=multi-user.target

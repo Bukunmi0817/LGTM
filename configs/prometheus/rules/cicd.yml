@@ -1,0 +1,40 @@
+groups:
+  - name: cicd.rules
+    rules:
+      - alert: HighChangeFailureRate
+        expr: |
+          (increase(github_actions_workflow_run_total{conclusion="failure"}[24h])
+          / increase(github_actions_workflow_run_total[24h])) * 100 > 15
+        for: 5m
+        labels:
+          severity: critical
+          metric: "change_failure_rate"
+        annotations:
+          summary: "Change Failure Rate exceeds SLO threshold"
+          description: "CFR is {{ $value | printf \"%.1f\" }}% over 24h. DORA SLO threshold: 15%."
+          dashboard_url: "http://13.61.147.12:3000/d/dora/dora-metrics"
+          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cfr_threshold.md"
+
+      - alert: MTTRExceeded
+        expr: incident_mttr_seconds > 14400
+        for: 0m
+        labels:
+          severity: warning
+          metric: "mttr"
+        annotations:
+          summary: "MTTR exceeded 4 hour threshold"
+          description: "Last incident MTTR was {{ $value | humanizeDuration }}. Target: under 4 hours."
+          dashboard_url: "http://13.61.147.12:3000/d/dora/dora-metrics"
+          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/mttr_exceeded.md"
+
+      - alert: DeploymentFailed
+        expr: increase(github_actions_workflow_run_total{conclusion="failure",name=~".*[Dd]eploy.*"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          metric: "deployment_failure"
+        annotations:
+          summary: "Deployment pipeline failed: {{ $labels.name }}"
+          description: "A deployment workflow failed. CFR is incrementing. Check GitHub Actions and consider rollback."
+          dashboard_url: "http://13.61.147.12:3000/d/dora/dora-metrics"
+          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cfr_threshold.md"

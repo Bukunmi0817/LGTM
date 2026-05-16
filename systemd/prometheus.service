@@ -1,0 +1,24 @@
+[Unit]
+Description=Prometheus
+Documentation=https://prometheus.io/docs/introduction/overview/
+After=network-online.target alertmanager.service
+Wants=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+Type=simple
+ExecStart=/usr/local/bin/prometheus \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --storage.tsdb.path=/var/lib/prometheus/data \
+  --storage.tsdb.retention.time=METRICS_RETENTION_PLACEHOLDER \
+  --web.enable-lifecycle \
+  --web.enable-remote-write-receiver \
+  --web.listen-address=0.0.0.0:9090
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+SyslogIdentifier=prometheus
+
+[Install]
+WantedBy=multi-user.target

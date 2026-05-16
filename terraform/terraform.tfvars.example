@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars and fill in real values
+# Never commit terraform.tfvars to git
+
+server_ip    = "13.61.147.12"
+ssh_user     = "teamlead1"
+ssh_key_path = "~/.ssh/social_badge_key"
+
+slack_webhook_url = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+slack_channel     = "#social-badge-devops-alerts"
+
+grafana_admin_password = "ChooseAStrongPassword123!"
+
+duckdns_subdomain = "adeshipo-lgtm"
+duckdns_token     = "your-duckdns-token"
+
+metrics_retention = "15d"
+logs_retention    = 360

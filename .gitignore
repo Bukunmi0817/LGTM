@@ -1,0 +1,18 @@
+# Terraform secrets — never commit these
+terraform/terraform.tfvars
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+
+# Environment files
+.env
+.env.*
+
+# Mac junk
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
