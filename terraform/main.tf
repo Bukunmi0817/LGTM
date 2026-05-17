@@ -7,7 +7,7 @@ resource "null_resource" "observability_stack" {
 
   # If any of these values change, Terraform re-runs the provisioners
   triggers = {
-    server_ip   = var.server_ip
+    server_ip     = var.server_ip
     slack_channel = var.slack_channel
   }
 

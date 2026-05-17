@@ -1,5 +1,5 @@
 output "grafana_url" {
-  value = "http://${var.server_ip}:3000"
+  value       = "http://${var.server_ip}:3000"
   description = "Grafana dashboard — login with admin and your chosen password"
 }
 
