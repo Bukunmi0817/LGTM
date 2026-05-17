@@ -4,6 +4,9 @@ name: Validate configs
 # This is the gate that keeps bad configs off the server.
 # A passing validate workflow is what keeps CFR low.
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
