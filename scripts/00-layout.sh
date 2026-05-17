@@ -115,7 +115,10 @@ DATA_DIRS=(
   /var/lib/lgtm/tempo
   /var/lib/lgtm/tempo/traces
   /var/lib/lgtm/tempo/wal
+  # Tempo 3.0 live-store — defaults to /var/tempo if not redirected via config
+  /var/tempo/live-store
   /var/lib/lgtm/grafana
+  /var/lib/lgtm/alertmanager
 )
 
 # Log directory
@@ -304,14 +307,6 @@ for entry in "${SERVICES[@]}"; do
   passwd -l "$username" &>/dev/null || true
 done
 
-# node-exporter, blackbox-exporter, otel-collector share a common user
-for svc in "${EXPORTER_SERVICES[@]}"; do
-  username="${svc//-/_}"   # replace hyphens for valid username
-  username="${username:0:16}"  # max username length on Linux
-  # Use 'nobody' equivalent — these are low-privilege exporters
-  # We'll map them to a shared 'exporter' user
-  done
-
 # Create a shared exporter user for node-exporter, blackbox-exporter, otel-collector
 if ! id "exporter" &>/dev/null; then
   useradd \
@@ -446,9 +441,12 @@ chown -R root:alertmanager /etc/lgtm/alertmanager
 chown -R root:exporter     /etc/lgtm/otel-collector
 chown -R root:exporter     /etc/lgtm/blackbox-exporter
 
-# Directories: root can rwx, group can rx (read configs, traverse dirs)
-find /etc/lgtm -type d -exec chmod 750 {} \;
-ok "Config directory permissions set (750 — root:group)"
+# Subdirectories: root can rwx, group can rx (read configs, traverse dirs)
+find /etc/lgtm -mindepth 1 -type d -exec chmod 750 {} \;
+# Parent /etc/lgtm stays 755 — service users need to traverse into it,
+# but each subdir's group ownership already restricts what they can see.
+chmod 755 /etc/lgtm
+ok "Config directory permissions set (subdirs 750 root:group, parent 755)"
 
 # 1.3b Grafana provisioning — explicit setup 
 # This section exists because Grafana provisioning is the most commonly
@@ -586,14 +584,20 @@ for dir in "${DATA_DIRS[@]}"; do
 done
 
 # Data dirs: owned by the service user — only they write here
-chown -R prometheus:prometheus   /var/lib/lgtm/prometheus
-chown -R loki:loki               /var/lib/lgtm/loki
-chown -R tempo:tempo             /var/lib/lgtm/tempo
-chown -R grafana:grafana         /var/lib/lgtm/grafana
+chown -R prometheus:prometheus     /var/lib/lgtm/prometheus
+chown -R loki:loki                 /var/lib/lgtm/loki
+chown -R tempo:tempo               /var/lib/lgtm/tempo
+chown -R tempo:tempo               /var/tempo
+chown -R grafana:grafana           /var/lib/lgtm/grafana
+chown -R alertmanager:alertmanager /var/lib/lgtm/alertmanager
 
-# Data dirs: service user full control, no world access
-find /var/lib/lgtm -type d -exec chmod 750 {} \;
-ok "Data directory permissions set (750 — service user owns)"
+# Subdirs: service user full control, no world access
+find /var/lib/lgtm -mindepth 1 -type d -exec chmod 750 {} \;
+# Parent /var/lib/lgtm stays 755 — service users need to traverse into it
+chmod 755 /var/lib/lgtm
+# Tempo 3.0 live-store lives outside /var/lib/lgtm — set separately
+find /var/tempo -type d -exec chmod 750 {} \;
+ok "Data directory permissions set (subdirs 750 service-owned, parent 755)"
 
 # 1.5 Log directory 
 info "Creating log directory..."
@@ -660,6 +664,7 @@ if [[ ! -f /etc/lgtm/secrets ]]; then
 # Replace the placeholder below with your actual Slack webhook URL.
 
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/
+GF_SECURITY_ADMIN_USER=admin
 GF_SECURITY_ADMIN_PASSWORD=change_me_in_production
 SECRETS
   chown root:root /etc/lgtm/secrets
@@ -737,7 +742,7 @@ echo ""
 echo -e "${BLD}Next steps:${RST}"
 echo -e "  1. ${YEL}Edit /etc/lgtm/secrets${RST} — set SLACK_WEBHOOK_URL and GF_SECURITY_ADMIN_PASSWORD"
 echo -e "  2. ${YEL}Edit /etc/lgtm/env${RST} — review and adjust retention periods if needed"
-echo -e "  3. Run ${BLD}01-install-binaries.sh${RST} (Phase 2)"
+echo -e "  3. Run ${BLD}01-bin_install.sh${RST} (Phase 2)"
 echo ""
 
 exit $ERRORS

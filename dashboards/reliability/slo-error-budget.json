@@ -1,0 +1,137 @@
+{
+  "title": "SLO & Error Budget",
+  "uid": "slo-error-budget",
+  "tags": ["reliability", "slo", "error-budget"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "refresh": "60s",
+  "time": { "from": "now-30d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Availability SLI (30d) — Target: 99.5%",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "avg_over_time(probe_success{job=\"blackbox-http\"}[30d]) * 100",
+        "legendFormat": "Availability %"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 99,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 99.5 },
+              { "color": "green", "value": 99.9 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Error Budget Remaining %",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "((avg_over_time(probe_success{job=\"blackbox-http\"}[30d]) - 0.995) / 0.005) * 100",
+        "legendFormat": "Budget remaining %"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 25 },
+              { "color": "green", "value": 50 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Latency SLI — % requests under 500ms",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(http_request_duration_seconds_bucket{le=\"0.5\"}[5m])) / sum(rate(http_request_duration_seconds_count[5m])) * 100",
+        "legendFormat": "< 500ms %"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 90 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Error Budget Consumed %",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "(1 - avg_over_time(probe_success{job=\"blackbox-http\"}[30d])) / 0.005 * 100",
+        "legendFormat": "Budget consumed %"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 75 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Burn Rate — Fast (1h) vs Slow (6h)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "1 - (sum(rate(probe_success{job=\"blackbox-http\"}[1h])) / count(probe_success{job=\"blackbox-http\"}))",
+          "legendFormat": "Fast burn (1h)"
+        },
+        {
+          "expr": "1 - (sum(rate(probe_success{job=\"blackbox-http\"}[6h])) / count(probe_success{job=\"blackbox-http\"}))",
+          "legendFormat": "Slow burn (6h)"
+        },
+        {
+          "expr": "vector(0.072)",
+          "legendFormat": "Fast burn threshold (14.4x)"
+        },
+        {
+          "expr": "vector(0.025)",
+          "legendFormat": "Slow burn threshold (5x)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } }
+    }
+  ]
+}
