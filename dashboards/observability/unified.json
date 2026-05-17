@@ -1,0 +1,101 @@
+{
+  "title": "Unified Observability",
+  "uid": "unified",
+  "tags": ["observability", "drill-down", "unified"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Error Rate Spike — Entry Point",
+      "description": "Step 1: See a spike here. Step 2: Use the time range to correlate logs below. Step 3: Click a traceID in logs to open in Tempo.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "rate(http_requests_total{status_code=~\"5..\"}[5m])",
+        "legendFormat": "5xx — {{endpoint}}"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "fixedColor": "red", "mode": "fixed" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Latency Spike — p99",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))",
+        "legendFormat": "p99 latency"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Correlated Logs — Errors (click traceID to open in Tempo)",
+      "description": "Filter to the time window of the spike above. Click any traceID field to drill into Tempo.",
+      "type": "logs",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "expr": "{service_name=\"fake-service\"} | json | status_code=`500`",
+        "legendFormat": ""
+      }],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Slow Traces — duration > 500ms (TraceQL)",
+      "description": "Traces from the fake-service where the request took longer than 500ms.",
+      "type": "traces",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 18 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [{
+        "query": "{resource.service.name=\"fake-service\" && duration>500ms}",
+        "queryType": "traceql"
+      }]
+    },
+    {
+      "id": 5,
+      "title": "Error Traces (TraceQL)",
+      "description": "All traces from fake-service where the span status is error.",
+      "type": "traces",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 18 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [{
+        "query": "{resource.service.name=\"fake-service\" && status=error}",
+        "queryType": "traceql"
+      }]
+    }
+  ]
+}

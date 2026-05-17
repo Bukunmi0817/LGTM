@@ -10,7 +10,7 @@
 #   Blackbox Exporter   0.28.0   via binary tarball
 #   Node Exporter       1.11.1   via binary tarball
 #   Loki                3.7.2    via binary tarball
-#   Tempo               3.0.0    via binary tarball
+#   Tempo               3.0.0-rc.1  via binary tarball
 #   OTel Collector      0.152.0  via .deb
 #
 # Nemeth principle: install, verify, then move on. Never assume a download
@@ -41,7 +41,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 # ─── Guards ───────────────────────────────────────────────────────────────────
 [[ "$EUID" -ne 0 ]] && die "Run as root: sudo bash $0"
-[[ ! -f /etc/lgtm/.arch ]] && die "Phase 0 layout not detected. Run 00-preflight-and-layout.sh first."
+[[ ! -f /etc/lgtm/.arch ]] && die "Phase 0 layout not detected. Run 00-layout.sh first."
 
 source /etc/lgtm/.arch
 [[ "$GOARCH" != "amd64" ]] && die "This script targets amd64. Your arch is ${GOARCH}."
@@ -56,7 +56,7 @@ ALERTMANAGER_VERSION="0.32.1"
 BLACKBOX_VERSION="0.28.0"
 NODE_EXPORTER_VERSION="1.11.1"
 LOKI_VERSION="3.7.2"
-TEMPO_VERSION="v3.0.0-rc.1"
+TEMPO_VERSION="3.0.0-rc.1"
 OTELCOL_VERSION="0.152.0"
 
 # ─── Download helper ──────────────────────────────────────────────────────────
@@ -203,7 +203,6 @@ PROM_URL="https://github.com/prometheus/prometheus/releases/download/v${PROMETHE
 
 download "$PROM_URL" "$PROM_TARBALL" "Prometheus ${PROMETHEUS_VERSION}"
 install_binary "$PROM_TARBALL" "prometheus" "/opt/lgtm/prometheus"
-install_binary "$PROM_URL" "promtool" "/opt/lgtm/prometheus"
 
 # Re-extract for promtool (install_binary cleans tmp after each call)
 download "$PROM_URL" "$PROM_TARBALL" "Prometheus ${PROMETHEUS_VERSION} (promtool pass)"
@@ -351,25 +350,26 @@ fi
 # =============================================================================
 section "8/8 — OTEL COLLECTOR ${OTELCOL_VERSION}"
 # Installed via .deb — same pattern as Grafana.
-# The contrib .deb includes all receivers and exporters including Loki and Tempo.
+# Must use otelcol-contrib: the base otelcol package does not include the Loki
+# exporter. contrib bundles all upstream receivers and exporters.
 # =============================================================================
 
-OTEL_DEB="${TMP_DIR}/otelcol.deb"
-OTEL_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTELCOL_VERSION}/otelcol_${OTELCOL_VERSION}_linux_amd64.deb"
+OTEL_DEB="${TMP_DIR}/otelcol-contrib.deb"
+OTEL_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTELCOL_VERSION}/otelcol-contrib_${OTELCOL_VERSION}_linux_amd64.deb"
 
 download "$OTEL_URL" "$OTEL_DEB" "OTel Collector ${OTELCOL_VERSION}"
 dpkg -i "$OTEL_DEB"
 ok "OTel Collector ${OTELCOL_VERSION} installed via dpkg"
 
-# .deb installs binary to /usr/bin/otelcol — symlink to our layout
-ln -sf /usr/bin/otelcol /opt/lgtm/otel-collector/otelcol
-ok "Symlink: /opt/lgtm/otel-collector/otelcol → /usr/bin/otelcol"
+# .deb installs binary to /usr/bin/otelcol-contrib — symlink to our layout
+ln -sf /usr/bin/otelcol-contrib /opt/lgtm/otel-collector/otelcol
+ok "Symlink: /opt/lgtm/otel-collector/otelcol → /usr/bin/otelcol-contrib"
 
 # Disable the default unit — Phase 3 installs our hardened unit
-systemctl disable --now otelcol 2>/dev/null || true
+systemctl disable --now otelcol-contrib 2>/dev/null || true
 ok "OTel Collector default systemd unit disabled — Phase 3 will install hardened unit"
 
-verify_binary /usr/bin/otelcol "$OTELCOL_VERSION"
+verify_binary /usr/bin/otelcol-contrib "$OTELCOL_VERSION"
 
 # =============================================================================
 section "INSTALLATION SUMMARY"
@@ -387,7 +387,7 @@ for binary in \
   /opt/lgtm/node-exporter/node_exporter \
   /opt/lgtm/loki/loki \
   /opt/lgtm/tempo/tempo \
-  /usr/bin/otelcol; do
+  /usr/bin/otelcol-contrib; do
   if [[ -x "$binary" ]]; then
     SIZE=$(du -sh "$binary" | cut -f1)
     echo -e "  ${GRN}✓${RST} ${binary} (${SIZE})"

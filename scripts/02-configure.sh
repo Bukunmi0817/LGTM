@@ -350,14 +350,39 @@ section "2/8 — ALERTMANAGER"
 # =============================================================================
 
 info "Writing alertmanager.yml..."
-# Slack webhook is read from /etc/lgtm/secrets at runtime via EnvironmentFile.
-# The template ${SLACK_WEBHOOK_URL} in the config is NOT a bash variable —
-# it's a literal string that Alertmanager reads from its own environment.
-# This is why we write it with single-quoted heredoc (no bash substitution).
-write_config /etc/lgtm/alertmanager/alertmanager.yml root:alertmanager 640 << 'EOF'
+
+# ── Extract and validate the webhook URL first ──────────────────────────────
+# Done before any file writes so the script dies early with a clear message
+# rather than writing a broken config and failing at amtool validation.
+SLACK_URL=$(grep '^SLACK_WEBHOOK_URL=' /etc/lgtm/secrets | cut -d= -f2-)
+[[ -z "$SLACK_URL" ]] && die "SLACK_WEBHOOK_URL not set in /etc/lgtm/secrets — add it and re-run"
+[[ "$SLACK_URL" == *"REPLACE"* ]] && die "SLACK_WEBHOOK_URL is still a placeholder — set the real URL in /etc/lgtm/secrets"
+[[ "$SLACK_URL" != https://* ]] && die "SLACK_WEBHOOK_URL must start with https://"
+
+# ── Idempotency: repair any previously written bad config ───────────────────
+# If a previous run wrote the placeholder or the literal variable name,
+# fix it now automatically. No manual intervention required.
+if [[ -f /etc/lgtm/alertmanager/alertmanager.yml ]]; then
+  if grep -qE '__SLACK_WEBHOOK_PLACEHOLDER__|\.SLACK_WEBHOOK_URL\.' \
+       /etc/lgtm/alertmanager/alertmanager.yml 2>/dev/null || \
+     grep -q 'SLACK_WEBHOOK_URL' /etc/lgtm/alertmanager/alertmanager.yml 2>/dev/null; then
+    warn "Existing alertmanager.yml has unresolved placeholder — repairing automatically"
+    sed -i "s|__SLACK_WEBHOOK_PLACEHOLDER__|${SLACK_URL}|g" \
+      /etc/lgtm/alertmanager/alertmanager.yml
+    sed -i 's|\${SLACK_WEBHOOK_URL}|'"${SLACK_URL}"'|g' \
+      /etc/lgtm/alertmanager/alertmanager.yml
+    ok "Existing alertmanager.yml repaired"
+  fi
+fi
+
+# ── Write config with sentinel, then immediately replace sentinel ────────────
+# Single-quoted heredoc keeps {{ Go template }} syntax safe from bash.
+# Sentinel __SLACK_WEBHOOK_PLACEHOLDER__ is replaced by sed immediately after.
+
+write_config /etc/lgtm/alertmanager/alertmanager.yml root:alertmanager 640 << 'AMEOF'
 global:
   resolve_timeout:  5m
-  slack_api_url:    "${SLACK_WEBHOOK_URL}"
+  slack_api_url:    "__SLACK_WEBHOOK_PLACEHOLDER__"
 
 templates:
   - "/etc/lgtm/alertmanager/templates/*.tmpl"
@@ -389,8 +414,6 @@ route:
       repeat_interval: 6h
 
 inhibit_rules:
-  # If a host is fully unreachable, suppress CPU/memory/latency noise for it.
-  # Nemeth: alert on causes, suppress symptoms.
   - source_match:
       alertname: "ServiceDown"
       severity:  "critical"
@@ -398,7 +421,6 @@ inhibit_rules:
       alertname: "CPU.*|Memory.*|Disk.*|Latency.*"
     equal: ["instance"]
 
-  # Critical always suppresses warning for the same alert type on the same host.
   - source_match:
       severity: "critical"
     target_match:
@@ -414,9 +436,35 @@ receivers:
         text:          '{{ template "slack.body" . }}'
         color:         '{{ template "slack.color" . }}'
         icon_emoji:    '{{ template "slack.icon" . }}'
-EOF
+AMEOF
+
+# Inject the real webhook URL — sed handles any special chars in the URL
+# by using | as delimiter instead of / (URLs contain forward slashes)
+sed -i "s|__SLACK_WEBHOOK_PLACEHOLDER__|${SLACK_URL}|g" \
+  /etc/lgtm/alertmanager/alertmanager.yml
+ok "Slack webhook URL injected into alertmanager.yml"
+
+MASKED=$(echo "$SLACK_URL" | sed 's|/services/.*|/services/***MASKED***|')
+info "slack_api_url set to: ${MASKED}"
 
 info "Writing Slack alert template..."
+# Idempotency: if the template was already written with the bad | default
+# function, fix it automatically before overwriting with the correct version.
+if [[ -f /etc/lgtm/alertmanager/templates/slack.tmpl ]]; then
+  if grep -q "| default" /etc/lgtm/alertmanager/templates/slack.tmpl 2>/dev/null; then
+    warn "Existing slack.tmpl uses unsupported | default function — repairing automatically"
+    python3 -c "
+path = '/etc/lgtm/alertmanager/templates/slack.tmpl'
+with open(path) as f: content = f.read()
+content = content.replace(
+    '{{ .Labels.instance | default \"N/A\" }}',
+    '{{ if .Labels.instance }}{{ .Labels.instance }}{{ else }}N/A{{ end }}'
+)
+with open(path, 'w') as f: f.write(content)
+"
+    ok "slack.tmpl repaired"
+  fi
+fi
 write_config /etc/lgtm/alertmanager/templates/slack.tmpl root:alertmanager 640 << 'EOF'
 {{ define "slack.title" -}}
 [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}
@@ -440,7 +488,7 @@ write_config /etc/lgtm/alertmanager/templates/slack.tmpl root:alertmanager 640 <
 {{ range .Alerts }}
 *Alert:*     {{ .Annotations.summary }}
 *Severity:*  {{ .Labels.severity | toUpper }}
-*Host:*      {{ .Labels.instance | default "N/A" }}
+*Host:*      {{ if .Labels.instance }}{{ .Labels.instance }}{{ else }}N/A{{ end }}
 *Status:*    {{ if eq $.Status "resolved" }}:white_check_mark: RESOLVED{{ else }}:fire: FIRING{{ end }}
 *Detail:*    {{ .Annotations.description }}
 {{ if .Annotations.dashboard_url }}*Dashboard:* <{{ .Annotations.dashboard_url }}|Open in Grafana>{{ end }}
@@ -453,10 +501,13 @@ write_config /etc/lgtm/alertmanager/templates/slack.tmpl root:alertmanager 640 <
 EOF
 
 info "Validating Alertmanager config with amtool..."
-if /opt/lgtm/alertmanager/amtool check-config /etc/lgtm/alertmanager/alertmanager.yml; then
+# The webhook URL is now a real URL injected at write time from /etc/lgtm/secrets.
+# amtool can validate the full config including the URL scheme.
+if /opt/lgtm/alertmanager/amtool check-config \
+    /etc/lgtm/alertmanager/alertmanager.yml 2>&1; then
   ok "alertmanager.yml: valid"
 else
-  fail "alertmanager.yml: INVALID — fix before Phase 4"
+  fail "alertmanager.yml: INVALID — check output above and fix before Phase 4"
 fi
 
 # =============================================================================
@@ -542,16 +593,9 @@ distributor:
     otlp:
       protocols:
         grpc:
-          endpoint: 0.0.0.0:4317
+          endpoint: 127.0.0.1:14317
         http:
-          endpoint: 0.0.0.0:4318
-
-ingester:
-  max_block_duration: 5m
-
-compactor:
-  compaction:
-    block_retention: 720h
+          endpoint: 127.0.0.1:14318
 
 metrics_generator:
   registry:
@@ -629,15 +673,19 @@ processors:
 
 exporters:
   otlp/tempo:
-    endpoint: 127.0.0.1:4317
+    endpoint: 127.0.0.1:14317
     tls:
       insecure: true
 
-  loki:
-    endpoint: http://127.0.0.1:3100/loki/api/v1/push
-    default_labels_enabled:
-      exporter: false
-      job:      true
+  # Loki's native OTLP endpoint (available since Loki 2.9).
+  # We use otlphttp here instead of the loki exporter because the loki
+  # exporter only ships in otelcol-contrib. The core otelcol binary (which
+  # is what the .deb installs) does not include it.
+  # otlphttp ships in core and Loki accepts OTLP natively at /otlp — same result.
+  otlphttp/loki:
+    endpoint: http://127.0.0.1:3100/otlp
+    tls:
+      insecure: true
 
   prometheus:
     endpoint: "127.0.0.1:8889"
@@ -655,7 +703,7 @@ service:
     logs:
       receivers:  [otlp]
       processors: [memory_limiter, batch, resource]
-      exporters:  [loki]
+      exporters:  [otlphttp/loki]
 
     metrics:
       receivers:  [otlp, prometheus]
@@ -664,10 +712,12 @@ service:
 EOF
 
 info "Validating OTel Collector config..."
-if /usr/bin/otelcol validate --config=/etc/lgtm/otel-collector/otel-config.yml 2>&1; then
+if /usr/bin/otelcol-contrib validate --config=/etc/lgtm/otel-collector/otel-config.yml 2>&1; then
   ok "otel-config.yml: valid"
 else
   fail "otel-config.yml: INVALID — fix before Phase 4"
+  info "Common causes: exporter not in core binary (use otlphttp instead of loki),"
+  info "  or receiver/processor name typo. Check the error above carefully."
 fi
 
 # =============================================================================
@@ -727,7 +777,7 @@ provisioning = /etc/lgtm/grafana/provisioning
 
 [server]
 protocol        = http
-http_addr       = 127.0.0.1
+http_addr       = 0.0.0.0
 http_port       = 3000
 root_url        = http://localhost:3000
 serve_from_sub_path = false
@@ -845,8 +895,10 @@ section "8/8 — CORRECT ALL CONFIG FILE PERMISSIONS"
 
 info "Enforcing final config file permissions..."
 
-# Directories: root owns, group can traverse and read
-find /etc/lgtm -type d -exec chmod 750 {} \;
+# Subdirectories: root owns, group can traverse and read
+# mindepth 1 preserves /etc/lgtm itself at 755 — service users must traverse it
+find /etc/lgtm -mindepth 1 -type d -exec chmod 750 {} \;
+chmod 755 /etc/lgtm
 
 # Config files: root:group, group-readable, no world access
 find /etc/lgtm/prometheus   -type f -exec chown root:prometheus   {} \; -exec chmod 640 {} \;
@@ -881,4 +933,3 @@ echo -e "  SLACK_WEBHOOK_URL and GF_SECURITY_ADMIN_PASSWORD must be set."
 echo ""
 
 exit $ERRORS
-

@@ -225,11 +225,6 @@ MemoryMax=256M
 WantedBy=multi-user.target
 EOF
 
-# Alertmanager data dir (not created in Phase 0 — add now)
-mkdir -p /var/lib/lgtm/alertmanager
-chown alertmanager:alertmanager /var/lib/lgtm/alertmanager
-chmod 750 /var/lib/lgtm/alertmanager
-ok "Alertmanager data dir: /var/lib/lgtm/alertmanager"
 
 # =============================================================================
 section "4/8 — LOKI"
@@ -304,7 +299,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
 ProtectSystem=full
-ReadWritePaths=/var/lib/lgtm/tempo /var/log/lgtm/tempo
+ReadWritePaths=/var/lib/lgtm/tempo /var/log/lgtm/tempo /var/tempo
 CapabilityBoundingSet=
 
 LimitNOFILE=32768
@@ -335,7 +330,7 @@ User=exporter
 Group=exporter
 EnvironmentFile=-/etc/lgtm/env
 
-ExecStart=/usr/bin/otelcol \
+ExecStart=/usr/bin/otelcol-contrib \
   --config=/etc/lgtm/otel-collector/otel-config.yml
 
 Restart=on-failure

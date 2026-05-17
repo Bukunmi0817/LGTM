@@ -34,7 +34,7 @@ die()     { echo -e "${RED}[FATAL]${RST} $*"; exit 1; }
 ERRORS=0
 
 [[ "$EUID" -ne 0 ]] && die "Run as root: sudo bash $0"
-[[ ! -f /etc/systemd/system/prometheus.service ]] && die "Phase 4 not detected. Run 03-systemd-units.sh first."
+[[ ! -f /etc/systemd/system/prometheus.service ]] && die "Phase 4 not detected. Run 03-systemd.sh first."
 
 # Seconds to wait after starting a service before health-checking it
 STARTUP_WAIT=10
@@ -147,6 +147,7 @@ audit_perm /etc/lgtm/env                             644 root:root
 audit_perm /var/lib/lgtm/prometheus                  750 prometheus:prometheus
 audit_perm /var/lib/lgtm/loki                        750 loki:loki
 audit_perm /var/lib/lgtm/tempo                       750 tempo:tempo
+audit_perm /var/tempo                                750 tempo:tempo
 audit_perm /var/lib/lgtm/grafana                     750 grafana:grafana
 audit_perm /var/lib/lgtm/alertmanager                750 alertmanager:alertmanager
 
@@ -164,7 +165,7 @@ audit_perm /opt/lgtm/loki/loki                        755 root:root
 audit_perm /opt/lgtm/tempo/tempo                      755 root:root
 audit_perm /opt/lgtm/node-exporter/node_exporter      755 root:root
 audit_perm /opt/lgtm/blackbox-exporter/blackbox_exporter 755 root:root
-audit_perm /usr/bin/otelcol                           755 root:root
+audit_perm /usr/bin/otelcol-contrib                   755 root:root
 
 if [[ "$ERRORS" -gt 0 ]]; then
   die "Permission audit failed — fix ${ERRORS} error(s) before starting services"
@@ -199,7 +200,7 @@ section "PART 1D — SECRETS VALIDATION"
 # =============================================================================
 
 info "Checking /etc/lgtm/secrets for placeholder values..."
-if grep -q "REPLACE/WITH/YOUR_WEBHOOK" /etc/lgtm/secrets; then
+if grep -q "SLACK_WEBHOOK_URL=https://hooks.slack.com/services/$" /etc/lgtm/secrets; then
   die "SLACK_WEBHOOK_URL is still a placeholder in /etc/lgtm/secrets. Set it before starting services."
 fi
 if grep -q "change_me_in_production" /etc/lgtm/secrets; then
