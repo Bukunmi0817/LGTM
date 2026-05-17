@@ -60,6 +60,7 @@ jobs:
       # Never hardcode credentials in workflow files.
       # ----------------------------------------------------------------
       - name: Set up SSH key
+        if: secrets.SSH_PRIVATE_KEY != ''
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
@@ -67,6 +68,7 @@ jobs:
           ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
 
       - name: Upload updated configs to server
+        if: secrets.SSH_PRIVATE_KEY != ''
         run: |
           # Upload all config files that may have changed
           scp -i ~/.ssh/deploy_key -r \
@@ -76,6 +78,7 @@ jobs:
             ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }}:/tmp/deploy/
 
       - name: Apply config changes on server
+        if: secrets.SSH_PRIVATE_KEY != ''
         run: |
           ssh -i ~/.ssh/deploy_key \
             ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} << 'ENDSSH'
@@ -107,6 +110,7 @@ jobs:
       # If this fails, the workflow fails = CFR increments.
       # ----------------------------------------------------------------
       - name: Verify stack is healthy after deployment
+        if: secrets.SSH_PRIVATE_KEY != ''
         run: |
           echo "Waiting for services to stabilise..."
           sleep 10
