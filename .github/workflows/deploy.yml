@@ -16,6 +16,9 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Record pipeline start time
+        run: echo "PIPELINE_START=$(date +%s)" >> $GITHUB_ENV
+
       # ----------------------------------------------------------------
       # Step 1: Check out the repository
       # ----------------------------------------------------------------
@@ -53,6 +56,10 @@ jobs:
         run: |
           yamllint -c .yamllint configs/
           echo "All YAML configs valid"
+
+      - name: Mark validation phase complete
+        if: always()
+        run: echo "VALIDATION_END=$(date +%s)" >> $GITHUB_ENV
 
       # ----------------------------------------------------------------
       # Step 3: Deploy configs to the server via SSH
@@ -127,14 +134,85 @@ jobs:
           fi
 
       # ----------------------------------------------------------------
-      # Step 5: Record deployment metadata
-      # This creates a metric we can use to track deployment timestamps.
+      # Step 5: Push DORA metrics to Pushgateway
+      # Runs even on failure (always) so CFR data is always captured.
+      # Per-run metrics: unique Pushgateway path per RUN_ID — history builds up.
+      # Latest-state metrics: overwritten each run — drives DeploymentFailed alert.
       # ----------------------------------------------------------------
-      - name: Record deployment timestamp
-        if: always()
+      - name: Push DORA metrics to Pushgateway
+        if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
+        env:
+          RUN_ID:     ${{ github.run_id }}
+          BRANCH:     ${{ github.ref_name }}
+          REPO:       ${{ github.repository }}
+          WORKFLOW:   ${{ github.workflow }}
+          COMMIT_SHA: ${{ github.sha }}
+          JOB_STATUS: ${{ job.status }}
         run: |
-          echo "Deployment completed at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "Status: ${{ job.status }}"
-          echo "Commit: ${{ github.sha }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Actor: ${{ github.actor }}"
+          DEPLOY_END=$(date +%s)
+          COMMIT_TIME=$(git log -1 --format=%ct)
+
+          # Fallback if an early failure meant timestamps were never recorded
+          PIPELINE_START="${PIPELINE_START:-$COMMIT_TIME}"
+          VALIDATION_END="${VALIDATION_END:-$PIPELINE_START}"
+
+          # Calculate all four DORA lead time sub-intervals
+          LEAD_TIME_TOTAL=$((DEPLOY_END - COMMIT_TIME))
+          LEAD_TIME_COMMIT_TO_TRIGGER=$((PIPELINE_START - COMMIT_TIME))
+          LEAD_TIME_TRIGGER_TO_BUILD=$((VALIDATION_END - PIPELINE_START))
+          LEAD_TIME_BUILD_TO_DEPLOY=$((DEPLOY_END - VALIDATION_END))
+
+          # 0=success, 1=failure — drives the DeploymentFailed alert
+          if [ "$JOB_STATUS" = "success" ]; then STATUS_VALUE=0; else STATUS_VALUE=1; fi
+
+          # Per-run metrics (unique job path per RUN_ID — history accumulates in Pushgateway)
+          # NOTE: VALUE of github_deploy_timestamp_seconds IS the unix timestamp.
+          # This lets PromQL filter by time window: metric > (time() - 86400)
+          cat > /tmp/dora_run.txt << METRICS
+          # HELP github_deploy_timestamp_seconds Unix timestamp of this deployment run
+          # TYPE github_deploy_timestamp_seconds gauge
+          github_deploy_timestamp_seconds{runid="${RUN_ID}",branch="${BRANCH}",status="${JOB_STATUS}",repo="${REPO}"} ${DEPLOY_END}
+          # HELP github_deploy_lead_time_seconds Total lead time from commit to deploy confirmed
+          # TYPE github_deploy_lead_time_seconds gauge
+          github_deploy_lead_time_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_TOTAL}
+          # HELP github_deploy_commit_to_trigger_seconds Commit to pipeline trigger
+          # TYPE github_deploy_commit_to_trigger_seconds gauge
+          github_deploy_commit_to_trigger_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_COMMIT_TO_TRIGGER}
+          # HELP github_deploy_trigger_to_build_seconds Trigger to validation complete
+          # TYPE github_deploy_trigger_to_build_seconds gauge
+          github_deploy_trigger_to_build_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_TRIGGER_TO_BUILD}
+          # HELP github_deploy_build_to_deploy_seconds Validation to deploy confirmed
+          # TYPE github_deploy_build_to_deploy_seconds gauge
+          github_deploy_build_to_deploy_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_BUILD_TO_DEPLOY}
+          METRICS
+
+          # Latest-state metrics (same path each run — overwrites previous)
+          cat > /tmp/dora_latest.txt << LATEST
+          # HELP github_last_deploy_status Most recent deploy: 0=success 1=failure
+          # TYPE github_last_deploy_status gauge
+          github_last_deploy_status{branch="${BRANCH}",workflow="${WORKFLOW}",commit="${COMMIT_SHA}"} ${STATUS_VALUE}
+          # HELP github_last_deploy_timestamp_seconds Timestamp of most recent deployment
+          # TYPE github_last_deploy_timestamp_seconds gauge
+          github_last_deploy_timestamp_seconds{branch="${BRANCH}"} ${DEPLOY_END}
+          LATEST
+
+          # Upload both files and push to Pushgateway on the server
+          scp -i ~/.ssh/deploy_key /tmp/dora_run.txt /tmp/dora_latest.txt \
+            ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }}:/tmp/
+
+          ssh -i ~/.ssh/deploy_key ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} "
+            curl -sf --data-binary @/tmp/dora_run.txt \
+              http://localhost:9091/metrics/job/github-deploy/runid/${RUN_ID} &&
+            curl -sf --data-binary @/tmp/dora_latest.txt \
+              http://localhost:9091/metrics/job/github-deploy-latest/branch/${BRANCH} &&
+            rm -f /tmp/dora_run.txt /tmp/dora_latest.txt &&
+            echo 'DORA metrics pushed to Pushgateway'
+          "
+
+          echo "--- Deployment summary ---"
+          echo "  Status:             ${JOB_STATUS}"
+          echo "  Commit:             ${COMMIT_SHA}"
+          echo "  Total lead time:    ${LEAD_TIME_TOTAL}s"
+          echo "  Commit → Trigger:   ${LEAD_TIME_COMMIT_TO_TRIGGER}s"
+          echo "  Trigger → Validate: ${LEAD_TIME_TRIGGER_TO_BUILD}s"
+          echo "  Validate → Deploy:  ${LEAD_TIME_BUILD_TO_DEPLOY}s"

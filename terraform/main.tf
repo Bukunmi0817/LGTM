@@ -143,4 +143,27 @@ resource "null_resource" "observability_stack" {
       "sudo /tmp/obs-setup/install.sh",
     ]
   }
+
+  # ----------------------------------------------------------------
+  # Pushgateway: receives DORA metrics pushed from GitHub Actions
+  # and exposes them on :9091 for Prometheus to scrape.
+  # ----------------------------------------------------------------
+  provisioner "file" {
+    source      = "../systemd/pushgateway.service"
+    destination = "/tmp/obs-setup/systemd/pushgateway.service"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "wget -q https://github.com/prometheus/pushgateway/releases/download/v1.9.0/pushgateway-1.9.0.linux-amd64.tar.gz -O /tmp/pushgateway.tar.gz",
+      "tar xzf /tmp/pushgateway.tar.gz -C /tmp/",
+      "sudo mv /tmp/pushgateway-1.9.0.linux-amd64/pushgateway /usr/local/bin/pushgateway",
+      "sudo mkdir -p /var/lib/pushgateway",
+      "sudo chown prometheus:prometheus /var/lib/pushgateway",
+      "sudo cp /tmp/obs-setup/systemd/pushgateway.service /etc/systemd/system/pushgateway.service",
+      "sudo systemctl daemon-reload",
+      "sudo systemctl enable --now pushgateway",
+      "echo 'Pushgateway running on :9091'"
+    ]
+  }
 }

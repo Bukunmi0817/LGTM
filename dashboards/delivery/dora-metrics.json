@@ -1,133 +1,621 @@
 {
   "title": "DORA Metrics",
   "uid": "dora-metrics",
-  "tags": ["delivery", "dora", "cicd"],
+  "tags": [
+    "delivery",
+    "dora",
+    "cicd"
+  ],
   "timezone": "browser",
   "schemaVersion": 38,
   "refresh": "5m",
-  "time": { "from": "now-30d", "to": "now" },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "branch",
+        "label": "Branch",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(github_deploy_timestamp_seconds, branch)",
+        "current": {
+          "value": "main",
+          "text": "main"
+        },
+        "multi": false,
+        "includeAll": true,
+        "allValue": ".*",
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
-      "title": "Deployment Frequency (deployments/day)",
+      "title": "Deployments Today",
+      "description": "Successful deployments in the last 24 hours.",
       "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{
-        "expr": "increase(deployments_total[1d])",
-        "legendFormat": "Deployments today"
-      }],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(github_deploy_timestamp_seconds{status=\"success\",branch=~\"$branch\"} > (time() - 86400)) or vector(0)",
+          "legendFormat": "Today"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "thresholds": {
+            "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "green", "value": 3 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 3
+              }
             ]
           }
         }
       },
       "options": {
         "colorMode": "background",
-        "reduceOptions": { "calcs": ["lastNotNull"] }
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
       }
     },
     {
       "id": 2,
-      "title": "Deployment Frequency Classification",
+      "title": "DORA Performance Level",
+      "description": "Deployment frequency classification per DORA benchmarks (7-day rolling average). Elite = multiple/day, High = daily, Medium = weekly, Low = monthly.",
       "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{
-        "expr": "rate(deployments_total[7d]) * 86400",
-        "legendFormat": "Deploys/day (7d avg)"
-      }],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(count(github_deploy_timestamp_seconds{status=\"success\",branch=~\"$branch\"} > (time() - 604800)) or vector(0)) / 7",
+          "legendFormat": "Deploys/day (7d avg)"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "decimals": 2,
           "mappings": [
-            { "options": { "from": 0,    "to": 0.03, "result": { "text": "Low (monthly)",   "color": "red"    } }, "type": "range" },
-            { "options": { "from": 0.03, "to": 0.14, "result": { "text": "Medium (weekly)",  "color": "yellow" } }, "type": "range" },
-            { "options": { "from": 0.14, "to": 1,    "result": { "text": "High (daily)",     "color": "blue"   } }, "type": "range" },
-            { "options": { "from": 1,    "to": 9999,  "result": { "text": "Elite (multiple/day)", "color": "green" } }, "type": "range" }
+            {
+              "type": "range",
+              "options": {
+                "from": 0,
+                "to": 0.03,
+                "result": {
+                  "text": "\ud83d\udd34  Low (< monthly)",
+                  "color": "red"
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 0.03,
+                "to": 0.14,
+                "result": {
+                  "text": "\ud83d\udfe1  Medium (weekly)",
+                  "color": "yellow"
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 0.14,
+                "to": 1,
+                "result": {
+                  "text": "\ud83d\udd35  High (daily)",
+                  "color": "blue"
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 1,
+                "to": 9999,
+                "result": {
+                  "text": "\ud83d\udfe2  Elite (multiple/day)",
+                  "color": "green"
+                }
+              }
+            }
           ]
         }
       },
-      "options": { "colorMode": "background" }
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 3,
-      "title": "Change Failure Rate %",
+      "title": "Change Failure Rate (30d)",
+      "description": "% of deployments causing failures in the last 30 days. SLO threshold: < 15%. DORA Elite: < 5%.",
       "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{
-        "expr": "rate(deployments_failed_total[7d]) / rate(deployments_total[7d]) * 100",
-        "legendFormat": "CFR %"
-      }],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(count(github_deploy_timestamp_seconds{status=\"failure\",branch=~\"$branch\"} > (time() - 2592000)) or vector(0)) / (count(github_deploy_timestamp_seconds{branch=~\"$branch\"} > (time() - 2592000)) or vector(1)) * 100",
+          "legendFormat": "CFR %"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "decimals": 1,
           "thresholds": {
+            "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 15 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
             ]
           }
         }
       },
-      "options": { "colorMode": "background" }
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 4,
-      "title": "MTTR (Mean Time to Restore)",
+      "title": "Mean Time to Restore",
+      "description": "Alert-fire to alert-resolved. SLO: < 4 hours. Push after incident: curl -X POST http://localhost:9091/metrics/job/incident-mttr --data-binary 'incident_mttr_seconds SECONDS'",
       "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{
-        "expr": "avg(mttr_seconds)",
-        "legendFormat": "MTTR"
-      }],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "incident_mttr_seconds or vector(0)",
+          "legendFormat": "MTTR"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "thresholds": {
+            "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 3600 },
-              { "color": "red", "value": 86400 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3600
+              },
+              {
+                "color": "red",
+                "value": 14400
+              }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "No incidents recorded"
+                }
+              }
+            }
+          ]
         }
       },
-      "options": { "colorMode": "background" }
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 5,
-      "title": "Deployment Frequency Over Time",
+      "title": "Deployment History",
+      "description": "Cumulative total. Each step up = one deployment pushed to Pushgateway. Green = success, red = failure.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{
-        "expr": "increase(deployments_total[1d])",
-        "legendFormat": "Deployments"
-      }],
-      "fieldConfig": { "defaults": { "unit": "short" } }
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(github_deploy_timestamp_seconds{status=\"success\",branch=~\"$branch\"}) or vector(0)",
+          "legendFormat": "Successful Deployments"
+        },
+        {
+          "refId": "B",
+          "expr": "count(github_deploy_timestamp_seconds{status=\"failure\",branch=~\"$branch\"}) or vector(0)",
+          "legendFormat": "Failed Deployments"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineInterpolation": "stepAfter",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed Deployments"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Successful Deployments"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "id": 6,
-      "title": "Lead Time for Changes",
+      "title": "Change Failure Rate \u2014 Trend (30d rolling)",
+      "description": "Rolling CFR over time. Threshold lines at 5% (DORA Elite boundary) and 15% (our SLO). Alert fires when crossing 15%.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{
-        "expr": "avg(lead_time_seconds)",
-        "legendFormat": "Lead time"
-      }],
-      "fieldConfig": { "defaults": { "unit": "s" } }
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(count(github_deploy_timestamp_seconds{status=\"failure\",branch=~\"$branch\"} > (time() - 2592000)) or vector(0)) / (count(github_deploy_timestamp_seconds{branch=~\"$branch\"} > (time() - 2592000)) or vector(1)) * 100",
+          "legendFormat": "CFR % (30d rolling)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line+area"
+            },
+            "fillOpacity": 5
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Lead Time \u2014 Sub-interval Breakdown",
+      "description": "Stacked: where time is actually spent. \u2460 Commit\u2192Trigger (pre-pipeline delay). \u2461 Trigger\u2192Validation (CI speed). \u2462 Validation\u2192Deploy (CD speed).",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(github_deploy_commit_to_trigger_seconds{branch=~\"$branch\"}) or vector(0)",
+          "legendFormat": "\u2460 Commit \u2192 Pipeline Trigger"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(github_deploy_trigger_to_build_seconds{branch=~\"$branch\"}) or vector(0)",
+          "legendFormat": "\u2461 Trigger \u2192 Validation Complete"
+        },
+        {
+          "refId": "C",
+          "expr": "avg(github_deploy_build_to_deploy_seconds{branch=~\"$branch\"}) or vector(0)",
+          "legendFormat": "\u2462 Validation \u2192 Deploy Confirmed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "fillOpacity": 40,
+            "lineWidth": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Lead Time for Changes \u2014 Total Trend",
+      "description": "Avg total lead time (commit to deploy confirmed). DORA Elite: < 1h. High: < 1d. Medium: < 1w. Low: > 1w.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(github_deploy_lead_time_seconds{branch=~\"$branch\"}) or vector(0)",
+          "legendFormat": "Avg Lead Time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "blue",
+                "value": 3600
+              },
+              {
+                "color": "yellow",
+                "value": 86400
+              },
+              {
+                "color": "red",
+                "value": 604800
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Last Deployment Status",
+      "description": "Status of the most recent deployment per branch. Drives DeploymentFailed alert when value = 1.",
+      "type": "stat",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 23
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "github_last_deploy_status{branch=~\"$branch\"} or vector(0)",
+          "legendFormat": "{{ branch }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "\u2705  Success",
+                  "color": "green"
+                }
+              }
+            },
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "\u274c  Failed",
+                  "color": "red"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "MTTR \u2014 Incident History",
+      "description": "Each bar = one recorded incident. Push after resolution: curl -X POST http://localhost:9091/metrics/job/incident-mttr --data-binary 'incident_mttr_seconds SECONDS'",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 5,
+        "w": 18,
+        "x": 6,
+        "y": 23
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "incident_mttr_seconds or vector(0)",
+          "legendFormat": "MTTR (seconds)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 0
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3600
+              },
+              {
+                "color": "red",
+                "value": 14400
+              }
+            ]
+          }
+        }
+      }
     }
   ]
 }

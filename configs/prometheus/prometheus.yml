@@ -76,3 +76,11 @@ scrape_configs:
         labels:
           service: "sample-app"
           environment: "production"
+
+  - job_name: "pushgateway"
+    honor_labels: true
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["localhost:9091"]
+        labels:
+          environment: "production"
