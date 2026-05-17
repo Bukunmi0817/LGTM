@@ -1,0 +1,136 @@
+name: Deploy LGTM Stack
+
+# Triggers on every push to main.
+# Every run of this workflow = 1 data point in Deployment Frequency.
+# A failed run = 1 data point in Change Failure Rate.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:     # allow manual trigger from GitHub UI for testing
+
+jobs:
+  deploy:
+    name: Deploy to production server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ----------------------------------------------------------------
+      # Step 1: Check out the repository
+      # ----------------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------------------
+      # Step 2: Validate configs before deploying
+      # Fail fast — never deploy broken configs.
+      # This is what keeps CFR low.
+      # ----------------------------------------------------------------
+      - name: Install validation tools
+        run: |
+          # Install promtool for Prometheus config validation
+          wget -q https://github.com/prometheus/prometheus/releases/download/v2.51.0/prometheus-2.51.0.linux-amd64.tar.gz
+          tar xzf prometheus-2.51.0.linux-amd64.tar.gz
+          sudo mv prometheus-2.51.0.linux-amd64/promtool /usr/local/bin/
+          
+          # Install yamllint for YAML validation
+          pip install yamllint
+
+      - name: Validate Prometheus config
+        run: |
+          promtool check config configs/prometheus/prometheus.yml
+          echo "Prometheus config valid"
+
+      - name: Validate alert rules
+        run: |
+          promtool check rules configs/prometheus/rules/infrastructure.yml
+          promtool check rules configs/prometheus/rules/slo_burn_rate.yml
+          promtool check rules configs/prometheus/rules/cicd.yml
+          echo "All alert rules valid"
+
+      - name: Validate YAML configs
+        run: |
+          yamllint -c .yamllint configs/
+          echo "All YAML configs valid"
+
+      # ----------------------------------------------------------------
+      # Step 3: Deploy configs to the server via SSH
+      # Uses GitHub Secrets for SSH key and server IP.
+      # Never hardcode credentials in workflow files.
+      # ----------------------------------------------------------------
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Upload updated configs to server
+        run: |
+          # Upload all config files that may have changed
+          scp -i ~/.ssh/deploy_key -r \
+            configs/prometheus/ \
+            configs/alertmanager/ \
+            configs/grafana/dashboards/ \
+            ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }}:/tmp/deploy/
+
+      - name: Apply config changes on server
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} << 'ENDSSH'
+              set -e
+
+              echo "Copying updated configs..."
+              sudo cp -r /tmp/deploy/prometheus/*.yml /etc/lgtm/prometheus/
+              sudo cp -r /tmp/deploy/prometheus/rules/*.yml /etc/lgtm/prometheus/rules/
+              sudo cp -r /tmp/deploy/alertmanager/alertmanager.yml /etc/lgtm/alertmanager/
+              sudo cp -r /tmp/deploy/grafana/dashboards/* /etc/lgtm/grafana/dashboards/
+
+              echo "Reloading Prometheus config..."
+              curl -sf -X POST http://127.0.0.1:9090/-/reload
+              echo "Prometheus reloaded"
+
+              echo "Reloading Alertmanager config..."
+              curl -sf -X POST http://127.0.0.1:9093/-/reload
+              echo "Alertmanager reloaded"
+
+              echo "Checking all services are healthy..."
+              lgtm-health
+              
+              echo "Deployment complete."
+          ENDSSH
+
+      # ----------------------------------------------------------------
+      # Step 4: Verify deployment succeeded
+      # Hits the Grafana health endpoint to confirm the stack is up.
+      # If this fails, the workflow fails = CFR increments.
+      # ----------------------------------------------------------------
+      - name: Verify stack is healthy after deployment
+        run: |
+          echo "Waiting for services to stabilise..."
+          sleep 10
+          
+          # Check Grafana is responding
+          HTTP_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+            http://${{ secrets.SERVER_IP }}:3000/api/health || echo "000")
+          
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "Stack healthy after deployment (Grafana returned 200)"
+          else
+            echo "Stack health check failed — Grafana returned HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+      # ----------------------------------------------------------------
+      # Step 5: Record deployment metadata
+      # This creates a metric we can use to track deployment timestamps.
+      # ----------------------------------------------------------------
+      - name: Record deployment timestamp
+        if: always()
+        run: |
+          echo "Deployment completed at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Status: ${{ job.status }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Actor: ${{ github.actor }}"
