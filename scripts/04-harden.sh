@@ -207,6 +207,12 @@ if grep -q "change_me_in_production" /etc/lgtm/secrets; then
 fi
 ok "Secrets look populated"
 
+# Inject real secrets into Alertmanager config before it starts
+source /etc/lgtm/secrets
+sed -i "s|SLACK_WEBHOOK_PLACEHOLDER|${SLACK_WEBHOOK_URL}|g" /etc/lgtm/alertmanager/alertmanager.yml
+sed -i "s|SLACK_CHANNEL_PLACEHOLDER|#social-badge-devops-alerts|g" /etc/lgtm/alertmanager/alertmanager.yml
+ok "Slack webhook and channel injected into Alertmanager config"
+
 # =============================================================================
 # PART 2 — SERVICE BRING-UP IN DEPENDENCY ORDER
 # Each service is started, waited on, and health-checked before the next.
