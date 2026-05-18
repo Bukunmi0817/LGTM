@@ -1,23 +1,43 @@
-variable "server_ip" {
-  description = "IP address of the server provided by your team"
+# ── AWS infrastructure ─────────────────────────────────────────────────────────
+
+variable "aws_region" {
+  description = "AWS region to deploy the monitoring server"
   type        = string
-  default     = "13.61.147.12"
+  default     = "us-east-1"
 }
 
-variable "ssh_user" {
-  description = "SSH username for the server"
+variable "instance_type" {
+  description = "EC2 instance type (t3.large is the minimum recommended for the full LGTM stack)"
   type        = string
-  default     = "teamlead1"
+  default     = "t3.large"
 }
 
-variable "ssh_key_path" {
-  description = "Path to your SSH private key"
+variable "ssh_public_key_path" {
+  description = "Local path to the public key to import into AWS as a key pair"
   type        = string
-  default     = "~/.ssh/social_badge_key"
+  default     = "~/.ssh/id_ed25519.pub"
 }
+
+variable "ssh_private_key_path" {
+  description = "Local path to the matching private key — Terraform uses this to SSH in and run lgtm-stack.sh"
+  type        = string
+  default     = "~/.ssh/id_ed25519"
+}
+
+variable "engineer_ips" {
+  description = "CIDR blocks for engineers allowed SSH + dashboard access (e.g. [\"203.0.113.1/32\"])"
+  type        = list(string)
+}
+
+variable "app_server_ip" {
+  description = "CIDR of the application server that pushes OTLP telemetry here (e.g. \"10.0.1.5/32\")"
+  type        = string
+}
+
+# ── Observability stack config ─────────────────────────────────────────────────
 
 variable "slack_webhook_url" {
-  description = "Slack incoming webhook URL for #social-badge-devops-alerts"
+  description = "Slack incoming webhook URL for alert notifications"
   type        = string
   sensitive   = true
 }
@@ -41,7 +61,7 @@ variable "duckdns_subdomain" {
 }
 
 variable "duckdns_token" {
-  description = "DuckDNS token for SSL certificate"
+  description = "DuckDNS token for SSL certificate provisioning"
   type        = string
   sensitive   = true
 }

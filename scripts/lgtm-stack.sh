@@ -290,7 +290,7 @@ fi
 # 0.6 Required packages
 info "Checking and installing required packages..."
 
-REQUIRED_PKGS=(wget curl tar unzip python3 adduser git ca-certificates apt-transport-https gnupg2 libfontconfig1 musl)
+REQUIRED_PKGS=(wget curl tar unzip python3 adduser git ca-certificates apt-transport-https gnupg2 libfontconfig1 musl unzip)
 
 if command -v apt-get &>/dev/null; then
   # Debian/Ubuntu
@@ -316,6 +316,18 @@ elif command -v yum &>/dev/null; then
 else
   warn "No supported package manager found (apt/yum) — install manually: ${REQUIRED_PKGS[*]}"
   WARNINGS=$((WARNINGS+1))
+fi
+
+# Install AWS CLI v2 — the apt package is v1 and unreliable on fresh instances
+if ! command -v aws &>/dev/null || ! aws --version 2>&1 | grep -q "aws-cli/2"; then
+  info "Installing AWS CLI v2..."
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "${TMP_DIR}/awscliv2.zip"
+  unzip -q "${TMP_DIR}/awscliv2.zip" -d "${TMP_DIR}/"
+  "${TMP_DIR}/aws/install" --update
+  rm -rf "${TMP_DIR}/awscliv2.zip" "${TMP_DIR}/aws"
+  ok "AWS CLI v2 installed: $(aws --version 2>&1)"
+else
+  ok "AWS CLI v2 already present: $(aws --version 2>&1)"
 fi
 
 # 0.7 Port availability
@@ -716,24 +728,56 @@ else
   ok "/etc/lgtm/env already exists — skipping"
 fi
 
-# 1.8 Create /etc/lgtm/secrets — secrets file (mode 600) 
-info "Creating secrets file at /etc/lgtm/secrets..."
+# 1.8 Fetch secrets from AWS SSM Parameter Store
+# The instance IAM role grants read access to /lgtm/* parameters.
+# Falls back to environment variables so the script can also run manually.
+info "Fetching secrets from AWS SSM Parameter Store..."
+
+_ssm_get() {
+  aws ssm get-parameter --name "$1" --with-decryption \
+    --query 'Parameter.Value' --output text 2>/dev/null
+}
+
+# On a fresh EC2 instance, IMDS can take up to ~30s to serve credentials.
+# Retry up to 10 times (50s) before giving up.
+_wait_for_imds() {
+  local i=0
+  while (( i < 10 )); do
+    aws sts get-caller-identity &>/dev/null 2>&1 && return 0
+    (( i++ )) || true
+    info "Waiting for instance credentials via IMDS (attempt ${i}/10)..."
+    sleep 5
+  done
+  return 1
+}
+
+if _wait_for_imds; then
+  SLACK_WEBHOOK_URL=$(_ssm_get "/lgtm/slack_webhook_url")
+  GRAFANA_PASSWORD=$(_ssm_get "/lgtm/grafana_admin_password")
+  [[ -z "$SLACK_WEBHOOK_URL" ]] && die "Failed to fetch /lgtm/slack_webhook_url from SSM — check instance IAM role"
+  [[ -z "$GRAFANA_PASSWORD" ]]  && die "Failed to fetch /lgtm/grafana_admin_password from SSM — check instance IAM role"
+  ok "Secrets fetched from SSM"
+else
+  info "IMDS not reachable after 50s — falling back to environment variables"
+  [[ -z "${SLACK_WEBHOOK_URL:-}" ]] && die "SLACK_WEBHOOK_URL not set and SSM not available"
+  [[ -z "${GRAFANA_PASSWORD:-}" ]]  && die "GRAFANA_PASSWORD not set and SSM not available"
+  ok "Secrets loaded from environment"
+fi
+
+# 1.9 Create /etc/lgtm/secrets — secrets file (mode 600)
+info "Writing /etc/lgtm/secrets..."
 
 if [[ ! -f /etc/lgtm/secrets ]]; then
-  cat > /etc/lgtm/secrets << 'SECRETS'
-# LGTM Stack — secrets
-# This file is mode 600 (root read-only).
+  cat > /etc/lgtm/secrets << SECRETS
+# LGTM Stack — secrets (mode 600, root read-only)
 # Sourced by Alertmanager unit via EnvironmentFile=/etc/lgtm/secrets
-# Replace the placeholder below with your actual Slack webhook URL.
-
-SLACK_WEBHOOK_URL=__SLACK_PLACEHOLDER__
+SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
 GF_SECURITY_ADMIN_USER=admin
-GF_SECURITY_ADMIN_PASSWORD=change_me_in_production
+GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
 SECRETS
   chown root:root /etc/lgtm/secrets
   chmod 600 /etc/lgtm/secrets
   ok "Created /etc/lgtm/secrets (mode 600 — root only)"
-  warn "ACTION REQUIRED: Edit /etc/lgtm/secrets and set your SLACK_WEBHOOK_URL before Phase 4"
 else
   ok "/etc/lgtm/secrets already exists — skipping"
 fi
@@ -936,6 +980,26 @@ verify_binary /usr/sbin/grafana-server "$GRAFANA_VERSION"
 # Phase 3 will install our hardened unit file in its place.
 systemctl disable --now grafana-server 2>/dev/null || true
 ok "Grafana default systemd unit disabled — Phase 3 will install hardened unit"
+
+# Deploy dashboard JSON files from the Terraform-uploaded staging area.
+# Done here because the grafana group is created by the dpkg install above.
+info "Deploying Grafana dashboards..."
+if [[ -d /tmp/lgtm-dashboards ]]; then
+  for subdir in infrastructure reliability delivery observability; do
+    src="/tmp/lgtm-dashboards/${subdir}"
+    dst="/etc/lgtm/grafana/dashboards/${subdir}"
+    if [[ -d "$src" ]]; then
+      cp "${src}"/*.json "$dst/" 2>/dev/null || true
+      ok "Dashboards deployed: ${subdir}/ ($(ls "${dst}"/*.json 2>/dev/null | wc -l) files)"
+    fi
+  done
+  find /etc/lgtm/grafana/dashboards -name "*.json" -exec chown root:grafana {} \;
+  find /etc/lgtm/grafana/dashboards -name "*.json" -exec chmod 640 {} \;
+  rm -rf /tmp/lgtm-dashboards
+  ok "Dashboard ownership set (root:grafana, mode 640)"
+else
+  warn "Dashboard staging dir /tmp/lgtm-dashboards not found — dashboards will need to be deployed manually"
+fi
 
 # =============================================================================
 section "2/8 — PROMETHEUS ${PROMETHEUS_VERSION}"
@@ -2674,11 +2738,11 @@ section "PART 1D — SECRETS VALIDATION"
 # =============================================================================
 
 info "Checking /etc/lgtm/secrets for placeholder values..."
-if grep -q "SLACK_WEBHOOK_URL=https://hooks.slack.com/services/$" /etc/lgtm/secrets; then
-  die "SLACK_WEBHOOK_URL is still a placeholder in /etc/lgtm/secrets. Set it before starting services."
+if grep -q "__SLACK_PLACEHOLDER__" /etc/lgtm/secrets; then
+  die "SLACK_WEBHOOK_URL is still a placeholder in /etc/lgtm/secrets — SSM fetch must have failed"
 fi
 if grep -q "change_me_in_production" /etc/lgtm/secrets; then
-  warn "GF_SECURITY_ADMIN_PASSWORD is still the default — change it after first login"
+  die "GF_SECURITY_ADMIN_PASSWORD is still the default — SSM fetch must have failed"
 fi
 ok "Secrets look populated"
 
