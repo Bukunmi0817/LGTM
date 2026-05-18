@@ -131,6 +131,7 @@ jobs:
 
       - name: Install app dependencies
         run: |
+          pip install flake8 pytest pytest-flask
           pip install -r fake-service/requirements.txt
           pip install -r fake-service/tests/requirements-test.txt
 
