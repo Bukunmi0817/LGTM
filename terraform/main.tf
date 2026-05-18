@@ -524,7 +524,7 @@ resource "null_resource" "bootstrap_app" {
 # that resource already exists, we track the dependency via a separate trigger.
 resource "null_resource" "monitoring_ssm_ready" {
   triggers = {
-    app_server_ip       = aws_ssm_parameter.app_server_ip.value
+    app_server_ip        = aws_ssm_parameter.app_server_ip.value
     monitoring_server_ip = aws_ssm_parameter.monitoring_server_ip.value
   }
 }
