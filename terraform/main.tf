@@ -294,4 +294,20 @@ resource "null_resource" "bootstrap" {
       "rm -f /tmp/lgtm-stack.sh"
     ]
   }
+
+  # ── Pushgateway: receives DORA metrics pushed from GitHub Actions ──────────
+  # Installed separately so lgtm-stack.sh does not need modification.
+  # Runs after the main stack is up so Prometheus can be reloaded immediately.
+  provisioner "file" {
+    source      = "../scripts/install-pushgateway.sh"
+    destination = "/tmp/install-pushgateway.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/install-pushgateway.sh",
+      "sudo bash /tmp/install-pushgateway.sh",
+      "rm -f /tmp/install-pushgateway.sh"
+    ]
+  }
 }
