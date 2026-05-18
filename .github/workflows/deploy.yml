@@ -1,17 +1,16 @@
 name: Deploy LGTM Stack
 
-# Triggers on every push to main.
-# Every run of this workflow = 1 data point in Deployment Frequency.
+# Every run = 1 data point in Deployment Frequency.
 # A failed run = 1 data point in Change Failure Rate.
 on:
   push:
     branches:
       - main
-  workflow_dispatch:     # allow manual trigger from GitHub UI for testing
+  workflow_dispatch:
 
 jobs:
   deploy:
-    name: Deploy to production server
+    name: Deploy to monitoring server
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -19,25 +18,17 @@ jobs:
       - name: Record pipeline start time
         run: echo "PIPELINE_START=$(date +%s)" >> $GITHUB_ENV
 
-      # ----------------------------------------------------------------
-      # Step 1: Check out the repository
-      # ----------------------------------------------------------------
+      # ── Step 1: Checkout ────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ----------------------------------------------------------------
-      # Step 2: Validate configs before deploying
-      # Fail fast — never deploy broken configs.
-      # This is what keeps CFR low.
-      # ----------------------------------------------------------------
+      # ── Step 2: Validate configs ────────────────────────────────────
+      # Fail fast — never deploy broken configs. This keeps CFR low.
       - name: Install validation tools
         run: |
-          # Install promtool for Prometheus config validation
           wget -q https://github.com/prometheus/prometheus/releases/download/v2.51.0/prometheus-2.51.0.linux-amd64.tar.gz
           tar xzf prometheus-2.51.0.linux-amd64.tar.gz
           sudo mv prometheus-2.51.0.linux-amd64/promtool /usr/local/bin/
-          
-          # Install yamllint for YAML validation
           pip install yamllint
 
       - name: Validate Prometheus config
@@ -61,94 +52,81 @@ jobs:
         if: always()
         run: echo "VALIDATION_END=$(date +%s)" >> $GITHUB_ENV
 
-      # ----------------------------------------------------------------
-      # Step 3: Deploy configs to the server via SSH
-      # Uses GitHub Secrets for SSH key and server IP.
-      # Never hardcode credentials in workflow files.
-      # ----------------------------------------------------------------
-      - name: Set up SSH key
-        if: ${{ vars.DEPLOY_ENABLED == 'true' }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
-
-      # Monitoring server key — used to push DORA metrics to Pushgateway.
-      # MONITOR_SSH_KEY is the private key whose public key was passed to
-      # Terraform as ssh_public_key_path when the monitoring server was provisioned.
+      # ── Step 3: Set up SSH to monitoring server ─────────────────────
+      # The monitoring server runs Prometheus, Alertmanager, Grafana, Loki,
+      # Tempo, and Pushgateway. The app server only runs Node Exporter and
+      # OTel Collector — no config deployment needed there.
       - name: Set up monitoring server SSH key
         if: ${{ vars.DEPLOY_ENABLED == 'true' }}
         run: |
+          mkdir -p ~/.ssh
           echo "${{ secrets.MONITOR_SSH_KEY }}" > ~/.ssh/monitor_key
           chmod 600 ~/.ssh/monitor_key
           ssh-keyscan -H ${{ secrets.MONITOR_SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Upload updated configs to server
+      # ── Step 4: Deploy configs to monitoring server ─────────────────
+      - name: Upload updated configs to monitoring server
         if: ${{ vars.DEPLOY_ENABLED == 'true' }}
         run: |
-          # Upload all config files that may have changed
-          scp -i ~/.ssh/deploy_key -r \
+          scp -i ~/.ssh/monitor_key -r \
             configs/prometheus/ \
             configs/alertmanager/ \
-            configs/grafana/dashboards/ \
-            ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }}:/tmp/deploy/
+            configs/grafana/ \
+            dashboards/ \
+            ubuntu@${{ secrets.MONITOR_SERVER_IP }}:/tmp/deploy/
 
-      - name: Apply config changes on server
+      - name: Apply config changes on monitoring server
         if: ${{ vars.DEPLOY_ENABLED == 'true' }}
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.SSH_USER }}@${{ secrets.SERVER_IP }} << 'ENDSSH'
-              set -e
+          ssh -i ~/.ssh/monitor_key ubuntu@${{ secrets.MONITOR_SERVER_IP }} << 'ENDSSH'
+            set -e
 
-              echo "Copying updated configs..."
-              sudo cp -r /tmp/deploy/prometheus/*.yml /etc/lgtm/prometheus/
-              sudo cp -r /tmp/deploy/prometheus/rules/*.yml /etc/lgtm/prometheus/rules/
-              sudo cp -r /tmp/deploy/alertmanager/alertmanager.yml /etc/lgtm/alertmanager/
-              sudo cp -r /tmp/deploy/grafana/dashboards/* /etc/lgtm/grafana/dashboards/
+            echo "Copying updated configs..."
+            sudo cp -r /tmp/deploy/prometheus/*.yml         /etc/lgtm/prometheus/
+            sudo cp -r /tmp/deploy/prometheus/rules/*.yml   /etc/lgtm/prometheus/rules/
+            sudo cp -r /tmp/deploy/alertmanager/alertmanager.yml /etc/lgtm/alertmanager/
+            sudo cp -r /tmp/deploy/grafana/provisioning/    /etc/lgtm/grafana/
+            sudo cp -r /tmp/deploy/dashboards/*             /etc/lgtm/grafana/dashboards/
 
-              echo "Reloading Prometheus config..."
-              curl -sf -X POST http://127.0.0.1:9090/-/reload
-              echo "Prometheus reloaded"
+            echo "Fixing permissions..."
+            sudo chown -R root:prometheus   /etc/lgtm/prometheus
+            sudo chown -R root:alertmanager /etc/lgtm/alertmanager
+            sudo chown -R root:grafana      /etc/lgtm/grafana
 
-              echo "Reloading Alertmanager config..."
-              curl -sf -X POST http://127.0.0.1:9093/-/reload
-              echo "Alertmanager reloaded"
+            echo "Reloading Prometheus..."
+            curl -sf -X POST http://127.0.0.1:9090/-/reload
+            echo "Prometheus reloaded"
 
-              echo "Checking all services are healthy..."
-              lgtm-health
-              
-              echo "Deployment complete."
+            echo "Reloading Alertmanager..."
+            curl -sf -X POST http://127.0.0.1:9093/-/reload
+            echo "Alertmanager reloaded"
+
+            echo "Checking stack health..."
+            lgtm-health
+
+            echo "Deployment complete."
           ENDSSH
 
-      # ----------------------------------------------------------------
-      # Step 4: Verify deployment succeeded
-      # Hits the Grafana health endpoint to confirm the stack is up.
-      # If this fails, the workflow fails = CFR increments.
-      # ----------------------------------------------------------------
+      # ── Step 5: Verify deployment ───────────────────────────────────
+      # Hits Grafana on the monitoring server. If this fails, CFR increments.
       - name: Verify stack is healthy after deployment
         if: ${{ vars.DEPLOY_ENABLED == 'true' }}
         run: |
           echo "Waiting for services to stabilise..."
           sleep 10
-          
-          # Check Grafana is responding
+
           HTTP_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
-            http://${{ secrets.SERVER_IP }}:3000/api/health || echo "000")
-          
+            http://${{ secrets.MONITOR_SERVER_IP }}:3000/api/health || echo "000")
+
           if [ "$HTTP_STATUS" = "200" ]; then
-            echo "Stack healthy after deployment (Grafana returned 200)"
+            echo "Stack healthy — Grafana returned 200"
           else
-            echo "Stack health check failed — Grafana returned HTTP $HTTP_STATUS"
+            echo "Health check failed — Grafana returned HTTP $HTTP_STATUS"
             exit 1
           fi
 
-      # ----------------------------------------------------------------
-      # Step 5: Push DORA metrics to Pushgateway
-      # Runs even on failure (always) so CFR data is always captured.
-      # Per-run metrics: unique Pushgateway path per RUN_ID — history builds up.
-      # Latest-state metrics: overwritten each run — drives DeploymentFailed alert.
-      # ----------------------------------------------------------------
+      # ── Step 6: Push DORA metrics to Pushgateway ────────────────────
+      # Runs even on failure so CFR data is always captured.
       - name: Push DORA metrics to Pushgateway
         if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
         env:
@@ -162,27 +140,21 @@ jobs:
           DEPLOY_END=$(date +%s)
           COMMIT_TIME=$(git log -1 --format=%ct)
 
-          # Fallback if an early failure meant timestamps were never recorded
           PIPELINE_START="${PIPELINE_START:-$COMMIT_TIME}"
           VALIDATION_END="${VALIDATION_END:-$PIPELINE_START}"
 
-          # Calculate all four DORA lead time sub-intervals
           LEAD_TIME_TOTAL=$((DEPLOY_END - COMMIT_TIME))
           LEAD_TIME_COMMIT_TO_TRIGGER=$((PIPELINE_START - COMMIT_TIME))
           LEAD_TIME_TRIGGER_TO_BUILD=$((VALIDATION_END - PIPELINE_START))
           LEAD_TIME_BUILD_TO_DEPLOY=$((DEPLOY_END - VALIDATION_END))
 
-          # 0=success, 1=failure — drives the DeploymentFailed alert
           if [ "$JOB_STATUS" = "success" ]; then STATUS_VALUE=0; else STATUS_VALUE=1; fi
 
-          # Per-run metrics (unique job path per RUN_ID — history accumulates in Pushgateway)
-          # NOTE: VALUE of github_deploy_timestamp_seconds IS the unix timestamp.
-          # This lets PromQL filter by time window: metric > (time() - 86400)
           cat > /tmp/dora_run.txt << METRICS
           # HELP github_deploy_timestamp_seconds Unix timestamp of this deployment run
           # TYPE github_deploy_timestamp_seconds gauge
           github_deploy_timestamp_seconds{runid="${RUN_ID}",branch="${BRANCH}",status="${JOB_STATUS}",repo="${REPO}"} ${DEPLOY_END}
-          # HELP github_deploy_lead_time_seconds Total lead time from commit to deploy confirmed
+          # HELP github_deploy_lead_time_seconds Total lead time commit to deploy
           # TYPE github_deploy_lead_time_seconds gauge
           github_deploy_lead_time_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_TOTAL}
           # HELP github_deploy_commit_to_trigger_seconds Commit to pipeline trigger
@@ -196,7 +168,6 @@ jobs:
           github_deploy_build_to_deploy_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_BUILD_TO_DEPLOY}
           METRICS
 
-          # Latest-state metrics (same path each run — overwrites previous)
           cat > /tmp/dora_latest.txt << LATEST
           # HELP github_last_deploy_status Most recent deploy: 0=success 1=failure
           # TYPE github_last_deploy_status gauge
@@ -206,8 +177,6 @@ jobs:
           github_last_deploy_timestamp_seconds{branch="${BRANCH}"} ${DEPLOY_END}
           LATEST
 
-          # Upload both files and push to Pushgateway on the MONITORING server.
-          # Uses monitor_key (not deploy_key) — monitoring server is separate from app server.
           scp -i ~/.ssh/monitor_key /tmp/dora_run.txt /tmp/dora_latest.txt \
             ubuntu@${{ secrets.MONITOR_SERVER_IP }}:/tmp/
 
@@ -217,7 +186,7 @@ jobs:
             curl -sf --data-binary @/tmp/dora_latest.txt \
               http://localhost:9091/metrics/job/github-deploy-latest/branch/${BRANCH} &&
             rm -f /tmp/dora_run.txt /tmp/dora_latest.txt &&
-            echo 'DORA metrics pushed to Pushgateway on monitoring server'
+            echo 'DORA metrics pushed to Pushgateway'
           "
 
           echo "--- Deployment summary ---"
