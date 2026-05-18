@@ -70,7 +70,7 @@ jobs:
         run: |
           scp -i ~/.ssh/monitor_key -r \
             configs/prometheus/ \
-            configs/alertmanager/ \
+
             configs/grafana/ \
             dashboards/ \
             ubuntu@${{ secrets.MONITOR_SERVER_IP }}:/tmp/deploy/
