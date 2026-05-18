@@ -20,6 +20,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "min": 0,
+          "max": 100,
           "thresholds": {
             "steps": [
               { "color": "green", "value": null },
@@ -43,6 +45,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "min": 0,
+          "max": 100,
           "thresholds": {
             "steps": [
               { "color": "green", "value": null },
@@ -66,6 +70,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "min": 0,
+          "max": 100,
           "thresholds": {
             "steps": [
               { "color": "green", "value": null },
