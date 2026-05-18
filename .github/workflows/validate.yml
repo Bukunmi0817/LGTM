@@ -88,7 +88,7 @@ jobs:
       # ----------------------------------------------------------------
       - name: Validate Grafana dashboard JSON
         run: |
-          for f in configs/grafana/dashboards/**/*.json; do
+          for f in dashboards/**/*.json; do
             echo "Checking $f..."
             python3 -c "
           import json, sys
