@@ -73,7 +73,6 @@ jobs:
           ssh -i ~/.ssh/monitor_key ubuntu@${{ secrets.MONITOR_SERVER_IP }} << 'ENDSSH'
             set -e
             echo "Copying updated configs..."
-            sudo cp -r /tmp/deploy/prometheus/*.yml       /etc/lgtm/prometheus/
             sudo cp -r /tmp/deploy/prometheus/rules/*.yml /etc/lgtm/prometheus/rules/
             sudo cp -r /tmp/deploy/grafana/provisioning/  /etc/lgtm/grafana/
             sudo cp -r /tmp/deploy/dashboards/*           /etc/lgtm/grafana/dashboards/
