@@ -2214,6 +2214,7 @@ ExecStart=/opt/lgtm/prometheus/prometheus \
   --web.listen-address=127.0.0.1:9090 \
   --web.enable-lifecycle \
   --web.enable-admin-api \
+  --web.enable-remote-write-receiver \
   --log.level=warn
 
 # Live config reload without restart: curl -X POST http://localhost:9090/-/reload
