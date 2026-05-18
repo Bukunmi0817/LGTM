@@ -1,0 +1,13 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ADD THIS to prometheus/prometheus.yml under scrape_configs:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  # Fake service — Four Golden Signals
+  - job_name: "fake-service"
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["fake-service:8080"]
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: "http_request_duration_seconds.*|http_requests_total|process_cpu_usage_percent|process_memory_usage_percent|http_active_connections"
+        action: keep

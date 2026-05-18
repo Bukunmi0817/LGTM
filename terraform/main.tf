@@ -172,31 +172,8 @@ resource "aws_security_group" "monitoring" {
     cidr_blocks = var.engineer_ips
   }
 
-  # OTLP gRPC and HTTP: app server pushes traces and logs to OTel Collector
-  ingress {
-    description = "OTLP gRPC from app server"
-    from_port   = 4317
-    to_port     = 4317
-    protocol    = "tcp"
-    cidr_blocks = [var.app_server_ip]
-  }
-
-  ingress {
-    description = "OTLP HTTP from app server"
-    from_port   = 4318
-    to_port     = 4318
-    protocol    = "tcp"
-    cidr_blocks = [var.app_server_ip]
-  }
-
-  # Loki push API: used if the app server runs Promtail or direct Loki push
-  ingress {
-    description = "Loki push from app server"
-    from_port   = 3100
-    to_port     = 3100
-    protocol    = "tcp"
-    cidr_blocks = [var.app_server_ip]
-  }
+  # Cross-server ingress rules (OTLP, Loki) are added via aws_security_group_rule
+  # resources below, after aws_instance.app exists and its private IP is known.
 
   egress {
     description = "All outbound"
@@ -256,7 +233,11 @@ resource "null_resource" "bootstrap" {
     instance_id = aws_instance.monitoring.id
   }
 
-  depends_on = [aws_eip_association.monitoring]
+  depends_on = [
+    aws_eip_association.monitoring,
+    aws_ssm_parameter.app_server_ip,
+    aws_ssm_parameter.monitoring_server_ip,
+  ]
 
   connection {
     type        = "ssh"
@@ -309,5 +290,235 @@ resource "null_resource" "bootstrap" {
       "sudo bash /tmp/install-pushgateway.sh",
       "rm -f /tmp/install-pushgateway.sh"
     ]
+  }
+}
+
+# ── SSM: store both server private IPs so each bootstrap script can find the other ──
+# These are plain String (not SecureString) — IPs are not secret.
+resource "aws_ssm_parameter" "monitoring_server_ip" {
+  name  = "/lgtm/monitoring_server_ip"
+  type  = "String"
+  value = aws_instance.monitoring.private_ip
+}
+
+resource "aws_ssm_parameter" "app_server_ip" {
+  name  = "/lgtm/app_server_ip"
+  type  = "String"
+  value = aws_instance.app.private_ip
+}
+
+# ── IAM: app server reads /lgtm/monitoring_server_ip from SSM ─────────────────
+resource "aws_iam_role" "app" {
+  name = "lgtm-app-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "app_ssm" {
+  name = "lgtm-app-ssm-read"
+  role = aws_iam_role.app.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+      Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/lgtm/*"
+    }]
+  })
+}
+
+resource "aws_iam_instance_profile" "app" {
+  name = "lgtm-app-profile"
+  role = aws_iam_role.app.name
+}
+
+# ── App server security group ──────────────────────────────────────────────────
+# Cross-server rule (9100 from monitoring) is added via aws_security_group_rule
+# below, after both instances exist.
+resource "aws_security_group" "app" {
+  name        = "lgtm-app-sg"
+  description = "LGTM app server - public fake service + engineer SSH"
+  vpc_id      = aws_vpc.monitoring.id
+
+  ingress {
+    description = "SSH from engineers"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = var.engineer_ips
+  }
+
+  ingress {
+    description = "Fake service open to internet"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "All outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "lgtm-app-sg" }
+}
+
+# ── App server EC2 instance ────────────────────────────────────────────────────
+# t3.micro is sufficient — fake service + node-exporter + otel-collector is light.
+# No Elastic IP: the public IP is ephemeral but we use private IPs for all
+# inter-server communication so stability doesn't matter here.
+resource "aws_instance" "app" {
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.app_instance_type
+  key_name                    = aws_key_pair.monitoring.key_name
+  subnet_id                   = aws_subnet.monitoring_public.id
+  vpc_security_group_ids      = [aws_security_group.app.id]
+  iam_instance_profile        = aws_iam_instance_profile.app.name
+  associate_public_ip_address = true
+
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = 20
+    delete_on_termination = true
+  }
+
+  tags = { Name = "lgtm-app" }
+}
+
+# ── Cross-server security group rules ─────────────────────────────────────────
+# Defined after both instances exist to break the circular dependency.
+
+# Monitoring server: receive OTLP traces from app server (Tempo)
+resource "aws_security_group_rule" "monitoring_otlp_grpc" {
+  security_group_id = aws_security_group.monitoring.id
+  type              = "ingress"
+  description       = "OTLP gRPC from app server"
+  from_port         = 4317
+  to_port           = 4317
+  protocol          = "tcp"
+  cidr_blocks       = ["${aws_instance.app.private_ip}/32"]
+}
+
+# Monitoring server: receive OTLP HTTP from app server (Tempo)
+resource "aws_security_group_rule" "monitoring_otlp_http" {
+  security_group_id = aws_security_group.monitoring.id
+  type              = "ingress"
+  description       = "OTLP HTTP from app server"
+  from_port         = 4318
+  to_port           = 4318
+  protocol          = "tcp"
+  cidr_blocks       = ["${aws_instance.app.private_ip}/32"]
+}
+
+# Monitoring server: receive OTLP logs from app server (Loki)
+resource "aws_security_group_rule" "monitoring_loki_otlp" {
+  security_group_id = aws_security_group.monitoring.id
+  type              = "ingress"
+  description       = "Loki OTLP push from app server"
+  from_port         = 3100
+  to_port           = 3100
+  protocol          = "tcp"
+  cidr_blocks       = ["${aws_instance.app.private_ip}/32"]
+}
+
+# App server: allow Prometheus on monitoring server to scrape node-exporter
+resource "aws_security_group_rule" "app_node_exporter" {
+  security_group_id = aws_security_group.app.id
+  type              = "ingress"
+  description       = "Prometheus scraping node-exporter"
+  from_port         = 9100
+  to_port           = 9100
+  protocol          = "tcp"
+  cidr_blocks       = ["${aws_instance.monitoring.private_ip}/32"]
+}
+
+# App server: allow Prometheus to scrape fake-service /metrics
+resource "aws_security_group_rule" "app_fake_service_metrics" {
+  security_group_id = aws_security_group.app.id
+  type              = "ingress"
+  description       = "Prometheus scraping fake-service metrics"
+  from_port         = 8080
+  to_port           = 8080
+  protocol          = "tcp"
+  cidr_blocks       = ["${aws_instance.monitoring.private_ip}/32"]
+}
+
+# ── Bootstrap: provision the app server ───────────────────────────────────────
+# Runs after monitoring_server_ip is in SSM so app-agent.sh can fetch it.
+resource "null_resource" "bootstrap_app" {
+  triggers = {
+    instance_id = aws_instance.app.id
+  }
+
+  depends_on = [
+    aws_instance.app,
+    aws_ssm_parameter.monitoring_server_ip,
+  ]
+
+  connection {
+    type        = "ssh"
+    user        = "ubuntu"
+    private_key = file(var.ssh_private_key_path)
+    host        = aws_instance.app.public_ip
+    timeout     = "10m"
+  }
+
+  provisioner "remote-exec" {
+    inline = ["cloud-init status --wait || true"]
+  }
+
+  provisioner "remote-exec" {
+    inline = ["mkdir -p /tmp/lgtm-fake-service"]
+  }
+
+  provisioner "file" {
+    source      = "../fake-service/app.py"
+    destination = "/tmp/lgtm-fake-service/app.py"
+  }
+
+  provisioner "file" {
+    source      = "../fake-service/requirements.txt"
+    destination = "/tmp/lgtm-fake-service/requirements.txt"
+  }
+
+  provisioner "file" {
+    source      = "../fake-service/chaos.sh"
+    destination = "/tmp/lgtm-fake-service/chaos.sh"
+  }
+
+  provisioner "file" {
+    source      = "../scripts/app-agent.sh"
+    destination = "/tmp/app-agent.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/app-agent.sh",
+      "sudo bash /tmp/app-agent.sh",
+      "rm -f /tmp/app-agent.sh"
+    ]
+  }
+}
+
+# Update monitoring bootstrap to wait for app_server_ip SSM parameter
+# (lgtm-stack.sh reads it to configure Prometheus scrape targets).
+# Achieved via depends_on on null_resource.bootstrap below — but since
+# that resource already exists, we track the dependency via a separate trigger.
+resource "null_resource" "monitoring_ssm_ready" {
+  triggers = {
+    app_server_ip       = aws_ssm_parameter.app_server_ip.value
+    monitoring_server_ip = aws_ssm_parameter.monitoring_server_ip.value
   }
 }

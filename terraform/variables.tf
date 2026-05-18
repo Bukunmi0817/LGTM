@@ -7,9 +7,15 @@ variable "aws_region" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type (t3.large is the minimum recommended for the full LGTM stack)"
+  description = "EC2 instance type for the monitoring server (t3.large is the minimum for the full LGTM stack)"
   type        = string
   default     = "t3.large"
+}
+
+variable "app_instance_type" {
+  description = "EC2 instance type for the application server"
+  type        = string
+  default     = "t3.micro"
 }
 
 variable "ssh_public_key_path" {
@@ -27,11 +33,6 @@ variable "ssh_private_key_path" {
 variable "engineer_ips" {
   description = "CIDR blocks for engineers allowed SSH + dashboard access (e.g. [\"203.0.113.1/32\"])"
   type        = list(string)
-}
-
-variable "app_server_ip" {
-  description = "CIDR of the application server that pushes OTLP telemetry here (e.g. \"10.0.1.5/32\")"
-  type        = string
 }
 
 # ── Observability stack config ─────────────────────────────────────────────────
