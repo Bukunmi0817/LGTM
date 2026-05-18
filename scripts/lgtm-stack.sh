@@ -1753,6 +1753,10 @@ storage:
     wal:
       path: /var/lib/lgtm/tempo/wal
 
+compactor:
+  compaction:
+    block_retention: 720h
+
 overrides:
   defaults:
     metrics_generator:
