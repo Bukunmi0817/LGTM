@@ -14,6 +14,7 @@ on:
       - 'configs/**'
       - 'terraform/**'
       - 'systemd/**'
+      - 'fake-service/**'
       - '.github/workflows/**'
 
 jobs:
@@ -119,6 +120,32 @@ jobs:
             shellcheck "$f" || true
           done
           echo "Shell script check complete"
+
+      # ----------------------------------------------------------------
+      # App linting and tests
+      # ----------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install app dependencies
+        run: |
+          pip install -r fake-service/requirements.txt
+          pip install -r fake-service/tests/requirements-test.txt
+
+      - name: Lint fake-service
+        run: |
+          flake8 fake-service/app.py \
+            --max-line-length=120 \
+            --ignore=E402,W503
+          echo "Linting passed"
+
+      - name: Run fake-service tests
+        run: |
+          cd fake-service
+          pytest tests/ -v
+          echo "All tests passed"
 
       # ----------------------------------------------------------------
       # Summary
