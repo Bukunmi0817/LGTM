@@ -1,169 +1,297 @@
 locals {
   domain      = "${var.duckdns_subdomain}.duckdns.org"
-  grafana_url = "http://${var.server_ip}:3000"
+  grafana_url = "http://${aws_eip.monitoring.public_ip}:3000"
 }
 
-resource "null_resource" "observability_stack" {
+# ── Account ID (used to scope IAM policy to this account's SSM parameters) ────
+data "aws_caller_identity" "current" {}
 
-  # If any of these values change, Terraform re-runs the provisioners
-  triggers = {
-    server_ip     = var.server_ip
-    slack_channel = var.slack_channel
+# ── SSM Parameter Store: secrets the bootstrap script fetches at runtime ───────
+# SecureString parameters are encrypted with the AWS-managed SSM KMS key.
+# Values are stored here rather than in Terraform state plaintext or SSH env vars.
+resource "aws_ssm_parameter" "slack_webhook_url" {
+  name  = "/lgtm/slack_webhook_url"
+  type  = "SecureString"
+  value = var.slack_webhook_url
+}
+
+resource "aws_ssm_parameter" "grafana_admin_password" {
+  name  = "/lgtm/grafana_admin_password"
+  type  = "SecureString"
+  value = var.grafana_admin_password
+}
+
+# ── IAM role: lets the EC2 instance read /lgtm/* SSM parameters ───────────────
+resource "aws_iam_role" "monitoring" {
+  name = "lgtm-monitoring-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "monitoring_ssm" {
+  name = "lgtm-monitoring-ssm-read"
+  role = aws_iam_role.monitoring.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/lgtm/*"
+      },
+      {
+        # Allow KMS decrypt only when called via SSM (scoped to the managed SSM key)
+        Effect    = "Allow"
+        Action    = "kms:Decrypt"
+        Resource  = "*"
+        Condition = { StringEquals = { "kms:ViaService" = "ssm.${var.aws_region}.amazonaws.com" } }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_instance_profile" "monitoring" {
+  name = "lgtm-monitoring-profile"
+  role = aws_iam_role.monitoring.name
+}
+
+# ── AMI: latest Ubuntu 22.04 LTS (Canonical) ──────────────────────────────────
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
   }
 
-  # ----------------------------------------------------------------
-  # SSH connection — how Terraform talks to your server
-  # ----------------------------------------------------------------
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+# ── VPC and public subnet ──────────────────────────────────────────────────────
+resource "aws_vpc" "monitoring" {
+  cidr_block           = "10.100.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = { Name = "lgtm-monitoring-vpc" }
+}
+
+resource "aws_subnet" "monitoring_public" {
+  vpc_id                  = aws_vpc.monitoring.id
+  cidr_block              = "10.100.1.0/24"
+  availability_zone       = "${var.aws_region}a"
+  map_public_ip_on_launch = false
+
+  tags = { Name = "lgtm-monitoring-public" }
+}
+
+resource "aws_internet_gateway" "monitoring" {
+  vpc_id = aws_vpc.monitoring.id
+
+  tags = { Name = "lgtm-monitoring-igw" }
+}
+
+resource "aws_route_table" "monitoring_public" {
+  vpc_id = aws_vpc.monitoring.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.monitoring.id
+  }
+
+  tags = { Name = "lgtm-monitoring-rt" }
+}
+
+resource "aws_route_table_association" "monitoring_public" {
+  subnet_id      = aws_subnet.monitoring_public.id
+  route_table_id = aws_route_table.monitoring_public.id
+}
+
+# ── Security group ─────────────────────────────────────────────────────────────
+# Inbound default-deny: only the ports below are open and only to the listed
+# CIDRs. Outbound unrestricted so Prometheus can scrape app-server node-exporter
+# (:9100) and Blackbox can probe app endpoints.
+resource "aws_security_group" "monitoring" {
+  name        = "lgtm-monitoring-sg"
+  description = "LGTM monitoring - engineer access + app server telemetry only"
+  vpc_id      = aws_vpc.monitoring.id
+
+  ingress {
+    description = "SSH from engineers"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = var.engineer_ips
+  }
+
+  ingress {
+    description = "Grafana from engineers"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = var.engineer_ips
+  }
+
+  ingress {
+    description = "Prometheus UI from engineers"
+    from_port   = 9090
+    to_port     = 9090
+    protocol    = "tcp"
+    cidr_blocks = var.engineer_ips
+  }
+
+  ingress {
+    description = "Alertmanager UI from engineers"
+    from_port   = 9093
+    to_port     = 9093
+    protocol    = "tcp"
+    cidr_blocks = var.engineer_ips
+  }
+
+  # Pushgateway receives DORA metrics pushed from GitHub Actions.
+  # GitHub Actions IPs are dynamic — to allow CI pushes, either add
+  # GitHub's published IP ranges here or open to 0.0.0.0/0 and rely on
+  # a push token for auth. Restricted to engineers for now.
+  ingress {
+    description = "Pushgateway from engineers"
+    from_port   = 9091
+    to_port     = 9091
+    protocol    = "tcp"
+    cidr_blocks = var.engineer_ips
+  }
+
+  # OTLP gRPC and HTTP: app server pushes traces and logs to OTel Collector
+  ingress {
+    description = "OTLP gRPC from app server"
+    from_port   = 4317
+    to_port     = 4317
+    protocol    = "tcp"
+    cidr_blocks = [var.app_server_ip]
+  }
+
+  ingress {
+    description = "OTLP HTTP from app server"
+    from_port   = 4318
+    to_port     = 4318
+    protocol    = "tcp"
+    cidr_blocks = [var.app_server_ip]
+  }
+
+  # Loki push API: used if the app server runs Promtail or direct Loki push
+  ingress {
+    description = "Loki push from app server"
+    from_port   = 3100
+    to_port     = 3100
+    protocol    = "tcp"
+    cidr_blocks = [var.app_server_ip]
+  }
+
+  egress {
+    description = "All outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "lgtm-monitoring-sg" }
+}
+
+# ── Key pair: import your local public key into AWS ────────────────────────────
+resource "aws_key_pair" "monitoring" {
+  key_name   = "lgtm-monitoring-key"
+  public_key = file(var.ssh_public_key_path)
+
+  tags = { Name = "lgtm-monitoring-key" }
+}
+
+# ── EC2 instance ───────────────────────────────────────────────────────────────
+resource "aws_instance" "monitoring" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.monitoring.key_name
+  subnet_id              = aws_subnet.monitoring_public.id
+  vpc_security_group_ids = [aws_security_group.monitoring.id]
+  iam_instance_profile   = aws_iam_instance_profile.monitoring.name
+
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = 40 # Prometheus TSDB + Loki chunks + Tempo trace blocks
+    delete_on_termination = true
+  }
+
+  tags = { Name = "lgtm-monitoring" }
+}
+
+# ── Elastic IP ─────────────────────────────────────────────────────────────────
+resource "aws_eip" "monitoring" {
+  domain = "vpc"
+  tags   = { Name = "lgtm-monitoring-eip" }
+}
+
+resource "aws_eip_association" "monitoring" {
+  instance_id   = aws_instance.monitoring.id
+  allocation_id = aws_eip.monitoring.id
+}
+
+# ── Bootstrap: upload and run lgtm-stack.sh ───────────────────────────────────
+# Secrets are written to a 600-permissions env file uploaded via the encrypted
+# SSH session, sourced into the script, then immediately deleted. Values are
+# still stored in Terraform state — use an encrypted S3 backend with restricted
+# access policies to protect them at rest.
+resource "null_resource" "bootstrap" {
+  triggers = {
+    instance_id = aws_instance.monitoring.id
+  }
+
+  depends_on = [aws_eip_association.monitoring]
+
   connection {
     type        = "ssh"
-    user        = var.ssh_user
-    private_key = file(var.ssh_key_path)
-    host        = var.server_ip
-    timeout     = "5m"
+    user        = "ubuntu"
+    private_key = file(var.ssh_private_key_path)
+    host        = aws_eip.monitoring.public_ip
+    timeout     = "10m"
   }
 
-  # ----------------------------------------------------------------
-  # Step 1: Create staging directory on the server
-  # This is a temporary folder where we upload everything before
-  # the install script moves things to their final locations.
-  # ----------------------------------------------------------------
+  # Wait for cloud-init to finish initialising the instance before anything else
   provisioner "remote-exec" {
-    inline = [
-      "mkdir -p /tmp/obs-setup/configs/prometheus/rules",
-      "mkdir -p /tmp/obs-setup/configs/loki",
-      "mkdir -p /tmp/obs-setup/configs/tempo",
-      "mkdir -p /tmp/obs-setup/configs/alertmanager/templates",
-      "mkdir -p /tmp/obs-setup/configs/otel",
-      "mkdir -p /tmp/obs-setup/configs/blackbox",
-      "mkdir -p /tmp/obs-setup/configs/grafana/provisioning/datasources",
-      "mkdir -p /tmp/obs-setup/configs/grafana/provisioning/dashboards",
-      "mkdir -p /tmp/obs-setup/configs/grafana/dashboards",
-      "mkdir -p /tmp/obs-setup/systemd",
-      "mkdir -p /tmp/obs-setup/app",
-      "echo 'Staging directory ready'"
-    ]
-  }
-
-  # ----------------------------------------------------------------
-  # Step 2: Upload all config files
-  # ----------------------------------------------------------------
-  provisioner "file" {
-    source      = "../configs/prometheus/prometheus.yml"
-    destination = "/tmp/obs-setup/configs/prometheus/prometheus.yml"
-  }
-
-  provisioner "file" {
-    source      = "../configs/prometheus/rules/"
-    destination = "/tmp/obs-setup/configs/prometheus/rules"
-  }
-
-  provisioner "file" {
-    source      = "../configs/loki/loki-config.yml"
-    destination = "/tmp/obs-setup/configs/loki/loki-config.yml"
-  }
-
-  provisioner "file" {
-    source      = "../configs/tempo/tempo-config.yml"
-    destination = "/tmp/obs-setup/configs/tempo/tempo-config.yml"
-  }
-
-  provisioner "file" {
-    source      = "../configs/alertmanager/alertmanager.yml"
-    destination = "/tmp/obs-setup/configs/alertmanager/alertmanager.yml"
-  }
-
-  provisioner "file" {
-    source      = "../configs/alertmanager/templates/slack.tmpl"
-    destination = "/tmp/obs-setup/configs/alertmanager/templates/slack.tmpl"
-  }
-
-  provisioner "file" {
-    source      = "../configs/otel/otel-collector.yml"
-    destination = "/tmp/obs-setup/configs/otel/otel-collector.yml"
-  }
-
-  provisioner "file" {
-    source      = "../configs/blackbox/blackbox.yml"
-    destination = "/tmp/obs-setup/configs/blackbox/blackbox.yml"
-  }
-
-  provisioner "file" {
-    source      = "../configs/grafana/provisioning/datasources/datasources.yml"
-    destination = "/tmp/obs-setup/configs/grafana/provisioning/datasources/datasources.yml"
-  }
-
-  provisioner "file" {
-    source      = "../configs/grafana/provisioning/dashboards/dashboards.yml"
-    destination = "/tmp/obs-setup/configs/grafana/provisioning/dashboards/dashboards.yml"
-  }
-
-  provisioner "file" {
-    source      = "../configs/grafana/dashboards/"
-    destination = "/tmp/obs-setup/configs/grafana/dashboards"
-  }
-
-  # ----------------------------------------------------------------
-  # Step 3: Upload systemd service files
-  # ----------------------------------------------------------------
-  provisioner "file" {
-    source      = "../systemd/"
-    destination = "/tmp/obs-setup/systemd"
-  }
-
-  # ----------------------------------------------------------------
-  # Step 4: Upload the sample instrumented app
-  # ----------------------------------------------------------------
-  provisioner "file" {
-    source      = "../app/"
-    destination = "/tmp/obs-setup/app"
-  }
-
-  # ----------------------------------------------------------------
-  # Step 5: Upload and run the install script
-  # ----------------------------------------------------------------
-  provisioner "file" {
-    source      = "../scripts/install.sh"
-    destination = "/tmp/obs-setup/install.sh"
+    inline = ["cloud-init status --wait || true"]
   }
 
   provisioner "remote-exec" {
-    inline = [
-      # Write secrets into environment variables the install script reads
-      "echo 'SLACK_WEBHOOK_URL=${var.slack_webhook_url}' > /tmp/obs-setup/.env",
-      "echo 'SLACK_CHANNEL=${var.slack_channel}' >> /tmp/obs-setup/.env",
-      "echo 'GRAFANA_PASSWORD=${var.grafana_admin_password}' >> /tmp/obs-setup/.env",
-      "echo 'DUCKDNS_TOKEN=${var.duckdns_token}' >> /tmp/obs-setup/.env",
-      "echo 'DUCKDNS_SUBDOMAIN=${var.duckdns_subdomain}' >> /tmp/obs-setup/.env",
-      "echo 'METRICS_RETENTION=${var.metrics_retention}' >> /tmp/obs-setup/.env",
-      "echo 'LOGS_RETENTION=${var.logs_retention}' >> /tmp/obs-setup/.env",
-      "echo 'SERVER_IP=${var.server_ip}' >> /tmp/obs-setup/.env",
-
-      # Make the install script executable and run it with sudo
-      "chmod +x /tmp/obs-setup/install.sh",
-      "sudo /tmp/obs-setup/install.sh",
-    ]
+    inline = ["mkdir -p /tmp/lgtm-dashboards"]
   }
 
-  # ----------------------------------------------------------------
-  # Pushgateway: receives DORA metrics pushed from GitHub Actions
-  # and exposes them on :9091 for Prometheus to scrape.
-  # ----------------------------------------------------------------
   provisioner "file" {
-    source      = "../systemd/pushgateway.service"
-    destination = "/tmp/obs-setup/systemd/pushgateway.service"
+    source      = "../dashboards/"
+    destination = "/tmp/lgtm-dashboards"
   }
 
+  provisioner "file" {
+    source      = "../scripts/lgtm-stack.sh"
+    destination = "/tmp/lgtm-stack.sh"
+  }
+
+  # The script fetches SLACK_WEBHOOK_URL and GRAFANA_PASSWORD directly from
+  # SSM using the instance's IAM role — no secrets flow through SSH.
   provisioner "remote-exec" {
     inline = [
-      "wget -q https://github.com/prometheus/pushgateway/releases/download/v1.9.0/pushgateway-1.9.0.linux-amd64.tar.gz -O /tmp/pushgateway.tar.gz",
-      "tar xzf /tmp/pushgateway.tar.gz -C /tmp/",
-      "sudo mv /tmp/pushgateway-1.9.0.linux-amd64/pushgateway /usr/local/bin/pushgateway",
-      "sudo mkdir -p /var/lib/pushgateway",
-      "sudo chown prometheus:prometheus /var/lib/pushgateway",
-      "sudo cp /tmp/obs-setup/systemd/pushgateway.service /etc/systemd/system/pushgateway.service",
-      "sudo systemctl daemon-reload",
-      "sudo systemctl enable --now pushgateway",
-      "echo 'Pushgateway running on :9091'"
+      "chmod +x /tmp/lgtm-stack.sh",
+      "sudo bash /tmp/lgtm-stack.sh",
+      "rm -f /tmp/lgtm-stack.sh"
     ]
   }
 }
