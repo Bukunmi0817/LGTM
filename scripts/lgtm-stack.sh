@@ -33,11 +33,10 @@
 # Writes and enables systemd unit files for every LGTM service.
 # Installation order follows dependency graph:
 #
-#   node-exporter      (no deps)   ─┐
-#   blackbox-exporter  (no deps)   ─┤
+#   blackbox-exporter  (no deps)   ─┐
 #   alertmanager       (no deps)   ─┤─→ prometheus ─→ grafana
 #   loki               (no deps)   ─┤
-#   tempo              (no deps)   ─┤─→ otel-collector
+#   tempo              (no deps)   ─┘
 #
 # Nemeth principle: document the dependency graph explicitly. systemd's
 # After= and Wants= make implicit boot-time ordering explicit and auditable.
@@ -106,9 +105,7 @@ SERVICES=(
 # Services that share a common user (no dedicated user needed)
 # node-exporter, blackbox-exporter, otel-collector run as nobody or their own
 EXPORTER_SERVICES=(
-  "node-exporter"
   "blackbox-exporter"
-  "otel-collector"
 )
 
 # Directory definitions
@@ -119,9 +116,7 @@ BIN_DIRS=(
   /opt/lgtm/tempo
   /opt/lgtm/grafana
   /opt/lgtm/alertmanager
-  /opt/lgtm/node-exporter
   /opt/lgtm/blackbox-exporter
-  /opt/lgtm/otel-collector
 )
 
 # Config directories
@@ -164,7 +159,6 @@ CONFIG_DIRS=(
 
   /etc/lgtm/alertmanager
   /etc/lgtm/alertmanager/templates
-  /etc/lgtm/otel-collector
   /etc/lgtm/blackbox-exporter
 )
 
@@ -336,15 +330,12 @@ info "Checking that required ports are available..."
 declare -A SERVICE_PORTS=(
   [9090]="Prometheus"
   [9093]="Alertmanager"
-  [9100]="Node Exporter"
   [9115]="Blackbox Exporter"
   [3000]="Grafana"
   [3100]="Loki"
   [3200]="Tempo HTTP"
-  [4317]="OTLP gRPC"
-  [4318]="OTLP HTTP"
-  [8888]="OTel Collector metrics"
-  [8080]="Fake Service"
+  [4317]="Tempo OTLP gRPC"
+  [4318]="Tempo OTLP HTTP"
 )
 
 for port in "${!SERVICE_PORTS[@]}"; do
@@ -382,7 +373,7 @@ for entry in "${SERVICES[@]}"; do
   passwd -l "$username" &>/dev/null || true
 done
 
-# Create a shared exporter user for node-exporter, blackbox-exporter, otel-collector
+# Create a shared exporter user for blackbox-exporter
 if ! id "exporter" &>/dev/null; then
   useradd \
     --system \
@@ -391,7 +382,7 @@ if ! id "exporter" &>/dev/null; then
     --comment "Shared user for LGTM exporters" \
     --user-group \
     "exporter"
-  ok "User exporter: created (shared user for node-exporter, blackbox-exporter, otel-collector)"
+  ok "User exporter: created (shared user for blackbox-exporter)"
 else
   ok "User exporter: already exists"
 fi
@@ -513,7 +504,6 @@ chown -R root:loki         /etc/lgtm/loki
 chown -R root:tempo        /etc/lgtm/tempo
 chown -R root:grafana      /etc/lgtm/grafana
 chown -R root:alertmanager /etc/lgtm/alertmanager
-chown -R root:exporter     /etc/lgtm/otel-collector
 chown -R root:exporter     /etc/lgtm/blackbox-exporter
 
 # Subdirectories: root can rwx, group can rx (read configs, traverse dirs)
@@ -716,10 +706,6 @@ PROMETHEUS_ADDR=127.0.0.1:9090
 LOKI_ADDR=127.0.0.1:3100
 TEMPO_ADDR=127.0.0.1:3200
 ALERTMANAGER_ADDR=127.0.0.1:9093
-
-# OTel endpoint for fake-service
-OTEL_ENDPOINT=http://127.0.0.1:4317
-SERVICE_NAME=fake-service
 ENV
   chown root:root /etc/lgtm/env
   chmod 644 /etc/lgtm/env
@@ -754,14 +740,17 @@ _wait_for_imds() {
 if _wait_for_imds; then
   SLACK_WEBHOOK_URL=$(_ssm_get "/lgtm/slack_webhook_url")
   GRAFANA_PASSWORD=$(_ssm_get "/lgtm/grafana_admin_password")
+  APP_SERVER_IP=$(_ssm_get "/lgtm/app_server_ip")
   [[ -z "$SLACK_WEBHOOK_URL" ]] && die "Failed to fetch /lgtm/slack_webhook_url from SSM — check instance IAM role"
   [[ -z "$GRAFANA_PASSWORD" ]]  && die "Failed to fetch /lgtm/grafana_admin_password from SSM — check instance IAM role"
-  ok "Secrets fetched from SSM"
+  [[ -z "$APP_SERVER_IP" ]]     && die "Failed to fetch /lgtm/app_server_ip from SSM — check instance IAM role"
+  ok "Secrets and config fetched from SSM (app server: ${APP_SERVER_IP})"
 else
   info "IMDS not reachable after 50s — falling back to environment variables"
   [[ -z "${SLACK_WEBHOOK_URL:-}" ]] && die "SLACK_WEBHOOK_URL not set and SSM not available"
   [[ -z "${GRAFANA_PASSWORD:-}" ]]  && die "GRAFANA_PASSWORD not set and SSM not available"
-  ok "Secrets loaded from environment"
+  [[ -z "${APP_SERVER_IP:-}" ]]     && die "APP_SERVER_IP not set and SSM not available"
+  ok "Config loaded from environment (app server: ${APP_SERVER_IP})"
 fi
 
 # 1.9 Create /etc/lgtm/secrets — secrets file (mode 600)
@@ -1067,20 +1056,7 @@ ok "Symlink: blackbox_exporter → /usr/local/bin/"
 
 verify_binary /opt/lgtm/blackbox-exporter/blackbox_exporter "$BLACKBOX_VERSION"
 
-# =============================================================================
-section "5/8 — NODE EXPORTER ${NODE_EXPORTER_VERSION}"
-# =============================================================================
-
-NE_TARBALL="${TMP_DIR}/node_exporter.tar.gz"
-NE_URL="https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/node_exporter-${NODE_EXPORTER_VERSION}.linux-amd64.tar.gz"
-
-download "$NE_URL" "$NE_TARBALL" "Node Exporter ${NODE_EXPORTER_VERSION}"
-install_binary "$NE_TARBALL" "node_exporter" "/opt/lgtm/node-exporter"
-
-ln -sf /opt/lgtm/node-exporter/node_exporter /usr/local/bin/node_exporter
-ok "Symlink: node_exporter → /usr/local/bin/"
-
-verify_binary /opt/lgtm/node-exporter/node_exporter "$NODE_EXPORTER_VERSION"
+# Node Exporter runs on the application server — installed by app-agent.sh.
 
 # =============================================================================
 section "6/8 — LOKI ${LOKI_VERSION}"
@@ -1154,29 +1130,7 @@ else
   warn "Could not confirm Tempo version — binary may still be valid"
 fi
 
-# =============================================================================
-section "8/8 — OTEL COLLECTOR ${OTELCOL_VERSION}"
-# Installed via .deb — same pattern as Grafana.
-# Must use otelcol-contrib: the base otelcol package does not include the Loki
-# exporter. contrib bundles all upstream receivers and exporters.
-# =============================================================================
-
-OTEL_DEB="${TMP_DIR}/otelcol-contrib.deb"
-OTEL_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTELCOL_VERSION}/otelcol-contrib_${OTELCOL_VERSION}_linux_amd64.deb"
-
-download "$OTEL_URL" "$OTEL_DEB" "OTel Collector ${OTELCOL_VERSION}"
-dpkg -i "$OTEL_DEB"
-ok "OTel Collector ${OTELCOL_VERSION} installed via dpkg"
-
-# .deb installs binary to /usr/bin/otelcol-contrib — symlink to our layout
-ln -sf /usr/bin/otelcol-contrib /opt/lgtm/otel-collector/otelcol
-ok "Symlink: /opt/lgtm/otel-collector/otelcol → /usr/bin/otelcol-contrib"
-
-# Disable the default unit — Phase 3 installs our hardened unit
-systemctl disable --now otelcol-contrib 2>/dev/null || true
-ok "OTel Collector default systemd unit disabled — Phase 3 will install hardened unit"
-
-verify_binary /usr/bin/otelcol-contrib "$OTELCOL_VERSION"
+# OTel Collector runs on the application server — installed by app-agent.sh.
 
 # =============================================================================
 section "INSTALLATION SUMMARY"
@@ -1191,10 +1145,8 @@ for binary in \
   /opt/lgtm/alertmanager/alertmanager \
   /opt/lgtm/alertmanager/amtool \
   /opt/lgtm/blackbox-exporter/blackbox_exporter \
-  /opt/lgtm/node-exporter/node_exporter \
   /opt/lgtm/loki/loki \
-  /opt/lgtm/tempo/tempo \
-  /usr/bin/otelcol-contrib; do
+  /opt/lgtm/tempo/tempo; do
   if [[ -x "$binary" ]]; then
     SIZE=$(du -sh "$binary" | cut -f1)
     echo -e "  ${GRN}✓${RST} ${binary} (${SIZE})"
@@ -1228,15 +1180,14 @@ write_config() {
 }
 
 # =============================================================================
-section "1/8 — PROMETHEUS"
+section "1/7 — PROMETHEUS"
 # =============================================================================
 
 info "Writing prometheus.yml..."
-write_config /etc/lgtm/prometheus/prometheus.yml root:prometheus 640 << 'EOF'
+write_config /etc/lgtm/prometheus/prometheus.yml root:prometheus 640 << EOF
 # =============================================================================
 # Prometheus configuration
-# Scrape interval: 15s (Nemeth: short enough for responsiveness, long enough
-# not to overwhelm exporters. 15s is the industry standard default.)
+# Scrape interval: 15s (industry standard default)
 # Retention: controlled by --storage.tsdb.retention.time in the unit file.
 # =============================================================================
 
@@ -1265,27 +1216,36 @@ scrape_configs:
     static_configs:
       - targets: ["127.0.0.1:9090"]
 
-  # ── System metrics — Node Exporter ───────────────────────────────────────
+  # ── App server OS metrics — Node Exporter ────────────────────────────────
   - job_name: "node-exporter"
     scrape_interval: 15s
     static_configs:
-      - targets: ["127.0.0.1:9100"]
+      - targets: ["${APP_SERVER_IP}:9100"]
     relabel_configs:
       - source_labels: [__address__]
         target_label:  instance
         regex:         "([^:]+).*"
-        replacement:   "$1"
+        replacement:   "\$1"
+
+  # ── App server application metrics — fake-service ────────────────────────
+  - job_name: "fake-service"
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["${APP_SERVER_IP}:8080"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  instance
+        regex:         "([^:]+).*"
+        replacement:   "\$1"
 
   # ── HTTP/SSL probing — Blackbox Exporter ─────────────────────────────────
-  # Add your real endpoints to the targets list below.
   - job_name: "blackbox-http"
     metrics_path: /probe
     params:
       module: [http_2xx]
     static_configs:
       - targets:
-          - https://google.com
-          - https://github.com
+          - "http://${APP_SERVER_IP}:8080/health"
     relabel_configs:
       - source_labels: [__address__]
         target_label:  __param_target
@@ -1315,11 +1275,6 @@ scrape_configs:
   - job_name: "alertmanager"
     static_configs:
       - targets: ["127.0.0.1:9093"]
-
-  # ── OTel Collector self-monitoring ───────────────────────────────────────
-  - job_name: "otel-collector"
-    static_configs:
-      - targets: ["127.0.0.1:8888"]
 
   # ── Grafana self-monitoring ───────────────────────────────────────────────
   - job_name: "grafana"
@@ -1528,7 +1483,7 @@ else
 fi
 
 # =============================================================================
-section "2/8 — ALERTMANAGER"
+section "2/7 — ALERTMANAGER"
 # =============================================================================
 
 info "Writing alertmanager.yml..."
@@ -1693,7 +1648,7 @@ else
 fi
 
 # =============================================================================
-section "3/8 — LOKI"
+section "3/7 — LOKI"
 # =============================================================================
 
 info "Writing loki-config.yml..."
@@ -1761,7 +1716,7 @@ else
 fi
 
 # =============================================================================
-section "4/8 — TEMPO"
+section "4/7 — TEMPO"
 # =============================================================================
 
 info "Writing tempo-config.yml..."
@@ -1775,9 +1730,9 @@ distributor:
     otlp:
       protocols:
         grpc:
-          endpoint: 127.0.0.1:14317
+          endpoint: 0.0.0.0:4317
         http:
-          endpoint: 127.0.0.1:14318
+          endpoint: 0.0.0.0:4318
 
 metrics_generator:
   registry:
@@ -1815,95 +1770,10 @@ else
   ok "tempo-config.yml: no obvious errors detected"
 fi
 
-# =============================================================================
-section "5/8 — OTEL COLLECTOR"
-# =============================================================================
-
-info "Writing otel-config.yml..."
-write_config /etc/lgtm/otel-collector/otel-config.yml root:exporter 640 << 'EOF'
-receivers:
-  otlp:
-    protocols:
-      grpc:
-        endpoint: 0.0.0.0:4317
-      http:
-        endpoint: 0.0.0.0:4318
-
-  prometheus:
-    config:
-      scrape_configs:
-        - job_name:        "otel-collector-self"
-          scrape_interval: 10s
-          static_configs:
-            - targets: ["127.0.0.1:8888"]
-
-processors:
-  batch:
-    timeout:         1s
-    send_batch_size: 1024
-
-  memory_limiter:
-    check_interval:  1s
-    limit_mib:       512
-    spike_limit_mib: 128
-
-  resource:
-    attributes:
-      - action: insert
-        key:    environment
-        value:  "production"
-
-exporters:
-  otlp/tempo:
-    endpoint: 127.0.0.1:14317
-    tls:
-      insecure: true
-
-  # Loki's native OTLP endpoint (available since Loki 2.9).
-  # We use otlphttp here instead of the loki exporter because the loki
-  # exporter only ships in otelcol-contrib. The core otelcol binary (which
-  # is what the .deb installs) does not include it.
-  # otlphttp ships in core and Loki accepts OTLP natively at /otlp — same result.
-  otlphttp/loki:
-    endpoint: http://127.0.0.1:3100/otlp
-    tls:
-      insecure: true
-
-  prometheus:
-    endpoint: "127.0.0.1:8889"
-
-  debug:
-    verbosity: basic
-
-service:
-  pipelines:
-    traces:
-      receivers:  [otlp]
-      processors: [memory_limiter, batch, resource]
-      exporters:  [otlp/tempo]
-
-    logs:
-      receivers:  [otlp]
-      processors: [memory_limiter, batch, resource]
-      exporters:  [otlphttp/loki]
-
-    metrics:
-      receivers:  [otlp, prometheus]
-      processors: [memory_limiter, batch]
-      exporters:  [prometheus]
-EOF
-
-info "Validating OTel Collector config..."
-if /usr/bin/otelcol-contrib validate --config=/etc/lgtm/otel-collector/otel-config.yml 2>&1; then
-  ok "otel-config.yml: valid"
-else
-  fail "otel-config.yml: INVALID — fix before Phase 4"
-  info "Common causes: exporter not in core binary (use otlphttp instead of loki),"
-  info "  or receiver/processor name typo. Check the error above carefully."
-fi
+# OTel Collector config is written by app-agent.sh on the application server.
 
 # =============================================================================
-section "6/8 — BLACKBOX EXPORTER"
+section "6/7 — BLACKBOX EXPORTER"
 # =============================================================================
 
 info "Writing blackbox.yml..."
@@ -1943,7 +1813,7 @@ modules:
 EOF
 
 # =============================================================================
-section "7/8 — GRAFANA"
+section "7/7 — GRAFANA"
 # =============================================================================
 
 info "Writing grafana.ini..."
@@ -2088,7 +1958,6 @@ find /etc/lgtm/loki         -type f -exec chown root:loki         {} \; -exec ch
 find /etc/lgtm/tempo        -type f -exec chown root:tempo        {} \; -exec chmod 640 {} \;
 find /etc/lgtm/grafana      -type f -exec chown root:grafana      {} \; -exec chmod 640 {} \;
 find /etc/lgtm/alertmanager -type f -exec chown root:alertmanager {} \; -exec chmod 640 {} \;
-find /etc/lgtm/otel-collector -type f -exec chown root:exporter   {} \; -exec chmod 640 {} \;
 find /etc/lgtm/blackbox-exporter -type f -exec chown root:exporter {} \; -exec chmod 640 {} \;
 
 # Secrets file must remain 600 — root only
@@ -2136,63 +2005,10 @@ section "RELOADING SYSTEMD DAEMON"
 systemctl daemon-reload
 ok "systemd daemon reloaded"
 
-# =============================================================================
-section "1/8 — NODE EXPORTER"
-# Simplest unit. No config file, no upstream dependencies.
-# Needs access to /proc and /sys — hence ReadOnlyPaths and
-# --path flags pointing to the host filesystem.
-# =============================================================================
-
-install_unit "node-exporter.service" << 'EOF'
-[Unit]
-Description=Prometheus Node Exporter
-Documentation=https://github.com/prometheus/node_exporter
-# No After= needed — node-exporter has no service dependencies.
-# It is a leaf node in the dependency graph.
-After=network.target
-
-[Service]
-Type=simple
-User=exporter
-Group=exporter
-EnvironmentFile=-/etc/lgtm/env
-
-ExecStart=/opt/lgtm/node-exporter/node_exporter \
-  --path.procfs=/proc \
-  --path.sysfs=/sys \
-  --path.rootfs=/ \
-  --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/) \
-  --web.listen-address=127.0.0.1:9100
-
-# Restart policy: restart on any non-zero exit.
-# RestartSec=5: wait 5 seconds before restart to avoid thrashing.
-Restart=on-failure
-RestartSec=5s
-
-# ── Security hardening ────────────────────────────────────────────────────
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectHome=yes
-# node-exporter reads /proc and /sys — ProtectSystem=full allows this
-# because those are not under /usr /boot /etc
-ProtectSystem=full
-ReadOnlyPaths=/proc /sys /
-ReadWritePaths=
-
-# File descriptor limit — node-exporter opens one fd per metric file in /proc
-LimitNOFILE=8192
-
-# ── Resource limits ───────────────────────────────────────────────────────
-# Prevent a runaway node-exporter from consuming the host
-MemoryMax=256M
-CPUQuota=20%
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# Node Exporter runs on the application server — installed by app-agent.sh.
 
 # =============================================================================
-section "2/8 — BLACKBOX EXPORTER"
+section "1/8 — BLACKBOX EXPORTER"
 # Needs CAP_NET_RAW for ICMP probing. We grant it explicitly rather than
 # running as root. If ICMP is not needed, remove AmbientCapabilities.
 # =============================================================================
@@ -2294,8 +2110,6 @@ install_unit "loki.service" << 'EOF'
 Description=Grafana Loki Log Aggregation
 Documentation=https://grafana.com/docs/loki/latest/
 After=network.target
-# OTel Collector must start after Loki — declared in otel-collector.service.
-# We don't declare it here to avoid circular dependencies.
 
 [Service]
 Type=simple
@@ -2331,7 +2145,7 @@ WantedBy=multi-user.target
 EOF
 
 # =============================================================================
-section "5/8 — TEMPO"
+section "5/7 — TEMPO"
 # =============================================================================
 
 install_unit "tempo.service" << 'EOF'
@@ -2369,50 +2183,10 @@ CPUQuota=50%
 WantedBy=multi-user.target
 EOF
 
-# =============================================================================
-section "6/8 — OTEL COLLECTOR"
-# Must start after Loki and Tempo — it ships data to both.
-# Wants= (not Requires=) — collector starts even if Loki/Tempo aren't up,
-# but will log errors until they come up. Resilient by design.
-# =============================================================================
-
-install_unit "otelcol.service" << 'EOF'
-[Unit]
-Description=OpenTelemetry Collector
-Documentation=https://opentelemetry.io/docs/collector/
-After=network.target loki.service tempo.service
-Wants=loki.service tempo.service
-
-[Service]
-Type=simple
-User=exporter
-Group=exporter
-EnvironmentFile=-/etc/lgtm/env
-
-ExecStart=/usr/bin/otelcol-contrib \
-  --config=/etc/lgtm/otel-collector/otel-config.yml
-
-Restart=on-failure
-RestartSec=5s
-
-# ── Security hardening ────────────────────────────────────────────────────
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectHome=yes
-ProtectSystem=full
-ReadWritePaths=/var/log/lgtm
-CapabilityBoundingSet=
-
-LimitNOFILE=16384
-MemoryMax=512M
-CPUQuota=30%
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# OTel Collector runs on the application server — installed by app-agent.sh.
 
 # =============================================================================
-section "7/8 — PROMETHEUS"
+section "6/7 — PROMETHEUS"
 # Starts after exporters and alertmanager.
 # Uses Wants= for exporters (non-fatal if missing) but Requires= for
 # alertmanager (prometheus with no alertmanager is broken by design).
@@ -2422,8 +2196,8 @@ install_unit "prometheus.service" << 'EOF'
 [Unit]
 Description=Prometheus Metrics Server
 Documentation=https://prometheus.io/docs/
-After=network.target node-exporter.service blackbox-exporter.service alertmanager.service
-Wants=node-exporter.service blackbox-exporter.service
+After=network.target blackbox-exporter.service alertmanager.service
+Wants=blackbox-exporter.service
 Requires=alertmanager.service
 
 [Service]
@@ -2467,7 +2241,7 @@ WantedBy=multi-user.target
 EOF
 
 # =============================================================================
-section "8/8 — GRAFANA"
+section "7/7 — GRAFANA"
 # The .deb installs grafana-server.service — we replace it with our own
 # hardened unit that points at /etc/lgtm/grafana/grafana.ini instead of
 # the default /etc/grafana/grafana.ini.
@@ -2529,12 +2303,10 @@ systemctl daemon-reload
 ok "systemd daemon reloaded with new units"
 
 UNITS=(
-  node-exporter.service
   blackbox-exporter.service
   alertmanager.service
   loki.service
   tempo.service
-  otelcol.service
   prometheus.service
   grafana-server.service
 )
@@ -2649,7 +2421,7 @@ if command -v ufw &>/dev/null; then
   ufw status verbose
 else
   warn "ufw not installed — install with: apt-get install ufw"
-  warn "Manually restrict access to ports 9090 9093 9100 9115 3100 3200 4317 4318 8888"
+  warn "Manually restrict access to ports 9090 9093 9115 3100 3200 4317 4318"
 fi
 
 # =============================================================================
@@ -2701,9 +2473,7 @@ audit_perm /opt/lgtm/prometheus/prometheus            755 root:root
 audit_perm /opt/lgtm/alertmanager/alertmanager        755 root:root
 audit_perm /opt/lgtm/loki/loki                        755 root:root
 audit_perm /opt/lgtm/tempo/tempo                      755 root:root
-audit_perm /opt/lgtm/node-exporter/node_exporter      755 root:root
 audit_perm /opt/lgtm/blackbox-exporter/blackbox_exporter 755 root:root
-audit_perm /usr/bin/otelcol-contrib                   755 root:root
 
 if [[ "$ERRORS" -gt 0 ]]; then
   die "Permission audit failed — fix ${ERRORS} error(s) before starting services"
@@ -2758,22 +2528,7 @@ ok "Slack webhook and channel injected into Alertmanager config"
 # If any service fails its health check, the script stops.
 # =============================================================================
 
-section "PART 2A — NODE EXPORTER"
-
-start_and_verify \
-  "node-exporter.service" \
-  "http://127.0.0.1:9100/metrics" \
-  30
-
-# Spot-check that CPU metrics are present
-if curl -sf "http://127.0.0.1:9100/metrics" | grep -q "node_cpu_seconds_total"; then
-  ok "node_cpu_seconds_total: present in metrics output"
-else
-  fail "node_cpu_seconds_total not found — node-exporter may not have /proc access"
-fi
-
-# =============================================================================
-section "PART 2B — BLACKBOX EXPORTER"
+section "PART 2A — BLACKBOX EXPORTER"
 
 start_and_verify \
   "blackbox-exporter.service" \
@@ -2790,7 +2545,7 @@ else
 fi
 
 # =============================================================================
-section "PART 2C — ALERTMANAGER"
+section "PART 2B — ALERTMANAGER"
 
 start_and_verify \
   "alertmanager.service" \
@@ -2806,7 +2561,7 @@ else
 fi
 
 # =============================================================================
-section "PART 2D — LOKI"
+section "PART 2C — LOKI"
 
 start_and_verify \
   "loki.service" \
@@ -2822,7 +2577,7 @@ else
 fi
 
 # =============================================================================
-section "PART 2E — TEMPO"
+section "PART 2D — TEMPO"
 
 # Tempo 3.0 live-store writes shard files and shutdown markers to /var/tempo
 # and work.json to /var/lib/lgtm/tempo/traces. A prior failed start (or a
@@ -2845,22 +2600,7 @@ else
 fi
 
 # =============================================================================
-section "PART 2F — OTEL COLLECTOR"
-
-start_and_verify \
-  "otelcol.service" \
-  "http://127.0.0.1:8888/metrics" \
-  30
-
-# Verify the pipelines are up — otelcol exposes its own metrics
-if curl -sf "http://127.0.0.1:8888/metrics" | grep -q "otelcol_process_uptime"; then
-  ok "OTel Collector: pipelines running (metrics endpoint healthy)"
-else
-  warn "Could not confirm OTel Collector pipeline status"
-fi
-
-# =============================================================================
-section "PART 2G — PROMETHEUS"
+section "PART 2E — PROMETHEUS"
 
 start_and_verify \
   "prometheus.service" \
@@ -2900,7 +2640,7 @@ else
 fi
 
 # =============================================================================
-section "PART 2H — GRAFANA"
+section "PART 2F — GRAFANA"
 
 start_and_verify \
   "grafana-server.service" \
@@ -2954,12 +2694,10 @@ check() {
 echo ""
 echo "LGTM Stack Health Check — $(date)"
 echo "─────────────────────────────────────"
-check "node-exporter"     "http://127.0.0.1:9100/metrics"
 check "blackbox-exporter" "http://127.0.0.1:9115/health"
 check "alertmanager"      "http://127.0.0.1:9093/-/healthy"
 check "loki"              "http://127.0.0.1:3100/ready"
 check "tempo"             "http://127.0.0.1:3200/ready"
-check "otelcol"           "http://127.0.0.1:8888/metrics"
 check "prometheus"        "http://127.0.0.1:9090/-/healthy"
 check "grafana"           "http://127.0.0.1:3000/api/health"
 echo "─────────────────────────────────────"
@@ -3027,8 +2765,8 @@ section "PART 3C — JOURNALD LOG VERIFICATION"
 
 info "Verifying all services are logging to journald..."
 for unit in \
-  node-exporter blackbox-exporter alertmanager \
-  loki tempo otelcol prometheus grafana-server; do
+  blackbox-exporter alertmanager \
+  loki tempo prometheus grafana-server; do
   LOG_LINES=$(journalctl -u "${unit}" --since "5 minutes ago" --no-pager -q 2>/dev/null | wc -l)
   if [[ "$LOG_LINES" -gt 0 ]]; then
     ok "journald capturing logs for ${unit} (${LOG_LINES} lines in last 5m)"

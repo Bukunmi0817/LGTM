@@ -35,10 +35,25 @@ output "ssh_command" {
 
 output "otlp_grpc_endpoint" {
   value       = "${aws_eip.monitoring.public_ip}:4317"
-  description = "Set OTEL_EXPORTER_OTLP_ENDPOINT to this on the application server"
+  description = "Tempo OTLP gRPC endpoint — app server OTel Collector forwards traces here"
 }
 
-output "prometheus_scrape_note" {
-  value       = "Allow inbound TCP 9100 from ${aws_eip.monitoring.public_ip} on the app server's firewall so Prometheus can scrape node-exporter"
-  description = "Action required on app server after provisioning"
+output "app_server_public_ip" {
+  value       = aws_instance.app.public_ip
+  description = "Public IP of the application server (ephemeral — may change on stop/start)"
+}
+
+output "fake_service_url" {
+  value       = "http://${aws_instance.app.public_ip}:8080"
+  description = "Fake service endpoint — open to internet for demo traffic"
+}
+
+output "app_ssh_command" {
+  value       = "ssh -i ${var.ssh_private_key_path} ubuntu@${aws_instance.app.public_ip}"
+  description = "SSH into the application server"
+}
+
+output "chaos_script_note" {
+  value       = "On the app server: sudo /opt/fake-service/chaos.sh [error-burst|latency-spike|normal|check]"
+  description = "Trigger failure scenarios for dashboard testing"
 }
