@@ -8,12 +8,12 @@
 # =============================================================================
 
 global:
-  scrape_interval:     15s
+  scrape_interval: 15s
   evaluation_interval: 15s
-  scrape_timeout:      10s
+  scrape_timeout: 10s
   external_labels:
     environment: "production"
-    team:        "devops"
+    team: "devops"
 
 rule_files:
   - "rules/*.yml"
@@ -50,11 +50,11 @@ scrape_configs:
           - "http://APP_SERVER_IP:8080/health"
     relabel_configs:
       - source_labels: [__address__]
-        target_label:  __param_target
+        target_label: __param_target
       - source_labels: [__param_target]
-        target_label:  instance
-      - target_label:  __address__
-        replacement:   "127.0.0.1:9115"
+        target_label: instance
+      - target_label: __address__
+        replacement: "127.0.0.1:9115"
 
   - job_name: "blackbox-ssl"
     metrics_path: /probe
@@ -66,11 +66,11 @@ scrape_configs:
           - github.com:443
     relabel_configs:
       - source_labels: [__address__]
-        target_label:  __param_target
+        target_label: __param_target
       - source_labels: [__param_target]
-        target_label:  instance
-      - target_label:  __address__
-        replacement:   "127.0.0.1:9115"
+        target_label: instance
+      - target_label: __address__
+        replacement: "127.0.0.1:9115"
 
   - job_name: "alertmanager"
     static_configs:
