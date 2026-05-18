@@ -165,11 +165,11 @@ resource "aws_security_group" "monitoring" {
   # GitHub's published IP ranges here or open to 0.0.0.0/0 and rely on
   # a push token for auth. Restricted to engineers for now.
   ingress {
-    description = "Pushgateway from engineers"
+    description = "Pushgateway from GitHub Actions and engineers"
     from_port   = 9091
     to_port     = 9091
     protocol    = "tcp"
-    cidr_blocks = var.engineer_ips
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   # Cross-server ingress rules (OTLP, Loki) are added via aws_security_group_rule
