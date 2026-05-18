@@ -6,21 +6,36 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
-# Add parent directory to path so we can import app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+
+def make_mock_span():
+    span = MagicMock()
+    ctx = MagicMock()
+    ctx.trace_id = 12345678901234567890123456789012
+    span.get_span_context.return_value = ctx
+    span.__enter__ = lambda s, *a: span
+    span.__exit__ = MagicMock(return_value=False)
+    return span
 
 
 @pytest.fixture
 def client():
+    mock_span = make_mock_span()
+    mock_tracer = MagicMock()
+    mock_tracer.start_as_current_span.return_value = mock_span
+
     with patch('opentelemetry.sdk.trace.TracerProvider'), \
          patch('opentelemetry.sdk.metrics.MeterProvider'), \
          patch('opentelemetry.sdk._logs.LoggerProvider'), \
          patch('opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter'), \
          patch('opentelemetry.exporter.otlp.proto.grpc.metric_exporter.OTLPMetricExporter'), \
          patch('opentelemetry.exporter.otlp.proto.grpc._log_exporter.OTLPLogExporter'), \
-         patch('threading.Thread'):
+         patch('threading.Thread'), \
+         patch('opentelemetry.trace.get_tracer', return_value=mock_tracer):
 
         import app as app_module
+        app_module.tracer = mock_tracer
         app_module.app.config['TESTING'] = True
         with app_module.app.test_client() as c:
             yield c
