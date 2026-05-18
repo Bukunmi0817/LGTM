@@ -1,16 +1,17 @@
 """
 Basic tests for fake-service endpoints.
 """
-import pytest
 import sys
 import os
+import pytest
+from unittest.mock import patch, MagicMock
 
+# Add parent directory to path so we can import app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 
 @pytest.fixture
 def client():
-    from unittest.mock import patch, MagicMock
-
     with patch('opentelemetry.sdk.trace.TracerProvider'), \
          patch('opentelemetry.sdk.metrics.MeterProvider'), \
          patch('opentelemetry.sdk._logs.LoggerProvider'), \
@@ -19,13 +20,10 @@ def client():
          patch('opentelemetry.exporter.otlp.proto.grpc._log_exporter.OTLPLogExporter'), \
          patch('threading.Thread'):
 
-        import importlib
-        import fake_service.app as app_module
-        importlib.reload(app_module)
-
+        import app as app_module
         app_module.app.config['TESTING'] = True
-        with app_module.app.test_client() as client:
-            yield client
+        with app_module.app.test_client() as c:
+            yield c
 
 
 def test_health_returns_200(client):
