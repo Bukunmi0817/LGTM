@@ -24,9 +24,9 @@ scrape_configs:
   - job_name: "node-exporter"
     scrape_interval: 15s
     static_configs:
-      - targets: ["localhost:9100"]
+      - targets: ["13.61.147.12:9100"]
         labels:
-          instance: "monitoring-server"
+          instance: "app-server"
           environment: "production"
 
   - job_name: "blackbox-http"
