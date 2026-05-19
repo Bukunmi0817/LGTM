@@ -2419,9 +2419,7 @@ if command -v ufw &>/dev/null; then
   ufw allow 3000/tcp comment "Grafana dashboard"
 
   # Pushgateway: open to internet so GitHub Actions can push DORA metrics directly
-  ufw allow 9090/tcp comment "Prometheus UI"
   ufw allow 9091/tcp comment "Pushgateway — DORA metrics from GitHub Actions"
-  ufw allow 9093/tcp comment "Alertmanager UI"
 
   # Enable without interactive prompt
   ufw --force enable
