@@ -47,18 +47,24 @@ jobs:
         if: always()
         run: echo "VALIDATION_END=$(date +%s)" >> $GITHUB_ENV
 
-
+      - name: Configure AWS credentials
+        if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
 
       - name: Push DORA metrics to Pushgateway
         if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
         env:
-          MONITOR_SERVER_IP: ${{ secrets.MONITOR_SERVER_IP }}
-          RUN_ID:            ${{ github.run_id }}
-          BRANCH:            ${{ github.ref_name }}
-          REPO:              ${{ github.repository }}
-          WORKFLOW:          ${{ github.workflow }}
-          COMMIT_SHA:        ${{ github.sha }}
-          JOB_STATUS:        ${{ job.status }}
+          RUN_ID:     ${{ github.run_id }}
+          BRANCH:     ${{ github.ref_name }}
+          REPO:       ${{ github.repository }}
+          WORKFLOW:   ${{ github.workflow }}
+          COMMIT_SHA: ${{ github.sha }}
+          JOB_STATUS: ${{ job.status }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           DEPLOY_END=$(date +%s)
           COMMIT_TIME=$(git log -1 --format=%ct)
