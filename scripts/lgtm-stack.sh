@@ -1692,6 +1692,7 @@ schema_config:
         period: 24h
 
 limits_config:
+  allow_structured_metadata: true
   # 30-day log retention
   retention_period:       720h
   ingestion_rate_mb:      16
@@ -1723,6 +1724,8 @@ section "4/7 — TEMPO"
 
 info "Writing tempo-config.yml..."
 write_config /etc/lgtm/tempo/tempo-config.yml root:tempo 640 << 'EOF'
+stream_over_http_enabled: true
+
 server:
   http_listen_port: 3200
   log_level:        warn
@@ -2421,9 +2424,14 @@ if command -v ufw &>/dev/null; then
   # Pushgateway: open to internet so GitHub Actions can push DORA metrics directly
   ufw allow 9091/tcp comment "Pushgateway — DORA metrics from GitHub Actions"
 
+  # OTel ingestion ports: restricted to VPC so only the app server can reach them
+  ufw allow from 10.100.0.0/16 to any port 3100 proto tcp comment "Loki OTLP from app server"
+  ufw allow from 10.100.0.0/16 to any port 4317 proto tcp comment "Tempo OTLP gRPC from app server"
+  ufw allow from 10.100.0.0/16 to any port 4318 proto tcp comment "Tempo OTLP HTTP from app server"
+
   # Enable without interactive prompt
   ufw --force enable
-  ok "ufw enabled: SSH, Grafana(:3000), Pushgateway(:9091) open"
+  ok "ufw enabled: SSH, Grafana(:3000), Pushgateway(:9091), OTel(:3100/:4317/:4318 VPC-only) open"
 
   ufw status verbose
 else
