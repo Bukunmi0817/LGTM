@@ -19,6 +19,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ── Validate configs ────────────────────────────────────────────
+      # Fail fast — never deploy broken configs. This keeps CFR low.
       - name: Install validation tools
         run: |
           wget -q https://github.com/prometheus/prometheus/releases/download/v2.51.0/prometheus-2.51.0.linux-amd64.tar.gz
@@ -47,55 +49,26 @@ jobs:
         if: always()
         run: echo "VALIDATION_END=$(date +%s)" >> $GITHUB_ENV
 
-      - name: Upload updated configs to monitoring server
+      # ── Verify stack is healthy ─────────────────────────────────────
+      # Hits Grafana on the monitoring server.
+      # If this fails, the workflow fails = CFR increments.
+      - name: Verify stack is healthy
         if: ${{ vars.DEPLOY_ENABLED == 'true' }}
         run: |
-          ssh -i ~/.ssh/monitor_key ubuntu@${{ secrets.MONITOR_SERVER_IP }} \
-            "mkdir -p /tmp/deploy/prometheus/rules /tmp/deploy/grafana/provisioning /tmp/deploy/dashboards"
-          scp -i ~/.ssh/monitor_key -r configs/prometheus/ \
-            ubuntu@${{ secrets.MONITOR_SERVER_IP }}:/tmp/deploy/
-          scp -i ~/.ssh/monitor_key -r configs/grafana/ \
-            ubuntu@${{ secrets.MONITOR_SERVER_IP }}:/tmp/deploy/
-          scp -i ~/.ssh/monitor_key -r dashboards/ \
-            ubuntu@${{ secrets.MONITOR_SERVER_IP }}:/tmp/deploy/
-
-      - name: Apply config changes on monitoring server
-        if: ${{ vars.DEPLOY_ENABLED == 'true' }}
-        run: |
-          ssh -i ~/.ssh/monitor_key ubuntu@${{ secrets.MONITOR_SERVER_IP }} << 'ENDSSH'
-            set -e
-            echo "Copying updated configs..."
-            sudo cp -r /tmp/deploy/prometheus/rules/*.yml /etc/lgtm/prometheus/rules/
-            sudo cp -r /tmp/deploy/grafana/provisioning/  /etc/lgtm/grafana/
-            sudo cp -r /tmp/deploy/dashboards/*           /etc/lgtm/grafana/dashboards/
-
-            echo "Fixing permissions..."
-            sudo chown -R root:prometheus /etc/lgtm/prometheus
-            sudo chown -R root:grafana   /etc/lgtm/grafana
-
-            echo "Reloading Prometheus..."
-            curl -sf -X POST http://127.0.0.1:9090/-/reload
-            echo "Prometheus reloaded"
-
-            echo "Checking stack health..."
-            lgtm-health
-
-            echo "Deployment complete."
-          ENDSSH
-
-      - name: Verify stack is healthy after deployment
-        if: ${{ vars.DEPLOY_ENABLED == 'true' }}
-        run: |
-          sleep 10
+          sleep 5
           HTTP_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
             http://${{ secrets.MONITOR_SERVER_IP }}:3000/api/health || echo "000")
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "Stack healthy — Grafana returned 200"
           else
-            echo "Health check failed — Grafana returned HTTP $HTTP_STATUS"
+            echo "Stack health check failed — Grafana returned HTTP $HTTP_STATUS"
             exit 1
           fi
 
+      # ── Push DORA metrics to Pushgateway ────────────────────────────
+      # Pushes directly via HTTP to the Elastic IP — no SSH needed.
+      # Elastic IP never changes between terraform destroy/apply cycles.
+      # Runs even on failure so CFR data is always captured.
       - name: Push DORA metrics to Pushgateway
         if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
         env:
@@ -110,46 +83,50 @@ jobs:
           COMMIT_TIME=$(git log -1 --format=%ct)
           PIPELINE_START="${PIPELINE_START:-$COMMIT_TIME}"
           VALIDATION_END="${VALIDATION_END:-$PIPELINE_START}"
+
           LEAD_TIME_TOTAL=$((DEPLOY_END - COMMIT_TIME))
           LEAD_TIME_COMMIT_TO_TRIGGER=$((PIPELINE_START - COMMIT_TIME))
           LEAD_TIME_TRIGGER_TO_BUILD=$((VALIDATION_END - PIPELINE_START))
           LEAD_TIME_BUILD_TO_DEPLOY=$((DEPLOY_END - VALIDATION_END))
+
           if [ "$JOB_STATUS" = "success" ]; then STATUS_VALUE=0; else STATUS_VALUE=1; fi
 
           cat > /tmp/dora_run.txt << METRICS
-          # HELP github_deploy_timestamp_seconds Unix timestamp of this deployment run
-          # TYPE github_deploy_timestamp_seconds gauge
-          github_deploy_timestamp_seconds{runid="${RUN_ID}",branch="${BRANCH}",status="${JOB_STATUS}",repo="${REPO}"} ${DEPLOY_END}
-          # HELP github_deploy_lead_time_seconds Total lead time commit to deploy
-          # TYPE github_deploy_lead_time_seconds gauge
-          github_deploy_lead_time_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_TOTAL}
-          # HELP github_deploy_commit_to_trigger_seconds Commit to pipeline trigger
-          # TYPE github_deploy_commit_to_trigger_seconds gauge
-          github_deploy_commit_to_trigger_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_COMMIT_TO_TRIGGER}
-          # HELP github_deploy_trigger_to_build_seconds Trigger to validation complete
-          # TYPE github_deploy_trigger_to_build_seconds gauge
-          github_deploy_trigger_to_build_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_TRIGGER_TO_BUILD}
-          # HELP github_deploy_build_to_deploy_seconds Validation to deploy confirmed
-          # TYPE github_deploy_build_to_deploy_seconds gauge
-          github_deploy_build_to_deploy_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_BUILD_TO_DEPLOY}
-          METRICS
+# HELP github_deploy_timestamp_seconds Unix timestamp of this deployment run
+# TYPE github_deploy_timestamp_seconds gauge
+github_deploy_timestamp_seconds{runid="${RUN_ID}",branch="${BRANCH}",status="${JOB_STATUS}",repo="${REPO}"} ${DEPLOY_END}
+# HELP github_deploy_lead_time_seconds Total lead time commit to deploy
+# TYPE github_deploy_lead_time_seconds gauge
+github_deploy_lead_time_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_TOTAL}
+# HELP github_deploy_commit_to_trigger_seconds Commit to pipeline trigger
+# TYPE github_deploy_commit_to_trigger_seconds gauge
+github_deploy_commit_to_trigger_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_COMMIT_TO_TRIGGER}
+# HELP github_deploy_trigger_to_build_seconds Trigger to validation complete
+# TYPE github_deploy_trigger_to_build_seconds gauge
+github_deploy_trigger_to_build_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_TRIGGER_TO_BUILD}
+# HELP github_deploy_build_to_deploy_seconds Validation to deploy confirmed
+# TYPE github_deploy_build_to_deploy_seconds gauge
+github_deploy_build_to_deploy_seconds{runid="${RUN_ID}",branch="${BRANCH}"} ${LEAD_TIME_BUILD_TO_DEPLOY}
+METRICS
 
           cat > /tmp/dora_latest.txt << LATEST
-          # HELP github_last_deploy_status Most recent deploy: 0=success 1=failure
-          # TYPE github_last_deploy_status gauge
-          github_last_deploy_status{branch="${BRANCH}",workflow="${WORKFLOW}",commit="${COMMIT_SHA}"} ${STATUS_VALUE}
-          # HELP github_last_deploy_timestamp_seconds Timestamp of most recent deployment
-          # TYPE github_last_deploy_timestamp_seconds gauge
-          github_last_deploy_timestamp_seconds{branch="${BRANCH}"} ${DEPLOY_END}
-          LATEST
+# HELP github_last_deploy_status Most recent deploy: 0=success 1=failure
+# TYPE github_last_deploy_status gauge
+github_last_deploy_status{branch="${BRANCH}",workflow="${WORKFLOW}",commit="${COMMIT_SHA}"} ${STATUS_VALUE}
+# HELP github_last_deploy_timestamp_seconds Timestamp of most recent deployment
+# TYPE github_last_deploy_timestamp_seconds gauge
+github_last_deploy_timestamp_seconds{branch="${BRANCH}"} ${DEPLOY_END}
+LATEST
 
-          # Push directly to Pushgateway via HTTP — no SSH needed.
-          # MONITOR_SERVER_IP is the Elastic IP — never changes between rebuilds.
           curl -sf --data-binary @/tmp/dora_run.txt \
-            http://${{ secrets.MONITOR_SERVER_IP }}:9091/metrics/job/github-deploy/runid/${RUN_ID}
+            http://${{ secrets.MONITOR_SERVER_IP }}:9091/metrics/job/github-deploy/runid/${RUN_ID} \
+            && echo "Per-run metrics pushed" \
+            || echo "Warning: per-run metrics push failed — is the stack up?"
+
           curl -sf --data-binary @/tmp/dora_latest.txt \
-            http://${{ secrets.MONITOR_SERVER_IP }}:9091/metrics/job/github-deploy-latest/branch/${BRANCH}
-          echo "DORA metrics pushed directly to Pushgateway" 
+            http://${{ secrets.MONITOR_SERVER_IP }}:9091/metrics/job/github-deploy-latest/branch/${BRANCH} \
+            && echo "Latest metrics pushed" \
+            || echo "Warning: latest metrics push failed — is the stack up?"
 
           echo "--- Deployment summary ---"
           echo "  Status:             ${JOB_STATUS}"
