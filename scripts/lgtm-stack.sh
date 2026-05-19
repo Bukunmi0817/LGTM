@@ -2418,9 +2418,12 @@ if command -v ufw &>/dev/null; then
   # change this to allow only from localhost or the proxy IP.
   ufw allow 3000/tcp comment "Grafana dashboard"
 
+  # Pushgateway: open to internet so GitHub Actions can push DORA metrics directly
+  ufw allow 9091/tcp comment "Pushgateway — DORA metrics from GitHub Actions"
+
   # Enable without interactive prompt
   ufw --force enable
-  ok "ufw enabled: SSH and Grafana(:3000) open, all else denied"
+  ok "ufw enabled: SSH, Grafana(:3000), Pushgateway(:9091) open"
 
   ufw status verbose
 else

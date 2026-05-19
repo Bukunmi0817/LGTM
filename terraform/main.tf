@@ -21,6 +21,18 @@ resource "aws_ssm_parameter" "grafana_admin_password" {
   value = var.grafana_admin_password
 }
 
+resource "aws_ssm_parameter" "duckdns_token" {
+  name  = "/lgtm/duckdns_token"
+  type  = "SecureString"
+  value = var.duckdns_token
+}
+
+resource "aws_ssm_parameter" "duckdns_subdomain" {
+  name  = "/lgtm/duckdns_subdomain"
+  type  = "String"
+  value = var.duckdns_subdomain
+}
+
 # ── IAM role: lets the EC2 instance read /lgtm/* SSM parameters ───────────────
 resource "aws_iam_role" "monitoring" {
   name = "lgtm-monitoring-role"
