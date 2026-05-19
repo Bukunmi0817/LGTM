@@ -77,7 +77,7 @@
       "id": 4,
       "title": "Slow Traces — duration > 500ms (TraceQL)",
       "description": "Traces from the fake-service where the request took longer than 500ms.",
-      "type": "traces",
+      "type": "table",
       "gridPos": { "h": 10, "w": 12, "x": 0, "y": 18 },
       "datasource": { "type": "tempo", "uid": "tempo" },
       "targets": [{
@@ -89,7 +89,7 @@
       "id": 5,
       "title": "Error Traces (TraceQL)",
       "description": "All traces from fake-service where the span status is error.",
-      "type": "traces",
+      "type": "table",
       "gridPos": { "h": 10, "w": 12, "x": 12, "y": 18 },
       "datasource": { "type": "tempo", "uid": "tempo" },
       "targets": [{
