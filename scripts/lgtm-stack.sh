@@ -741,9 +741,11 @@ if _wait_for_imds; then
   SLACK_WEBHOOK_URL=$(_ssm_get "/lgtm/slack_webhook_url")
   GRAFANA_PASSWORD=$(_ssm_get "/lgtm/grafana_admin_password")
   APP_SERVER_IP=$(_ssm_get "/lgtm/app_server_ip")
+  MONITORING_PUBLIC_IP=$(_ssm_get "/lgtm/monitoring_server_public_ip")
   [[ -z "$SLACK_WEBHOOK_URL" ]] && die "Failed to fetch /lgtm/slack_webhook_url from SSM — check instance IAM role"
   [[ -z "$GRAFANA_PASSWORD" ]]  && die "Failed to fetch /lgtm/grafana_admin_password from SSM — check instance IAM role"
   [[ -z "$APP_SERVER_IP" ]]     && die "Failed to fetch /lgtm/app_server_ip from SSM — check instance IAM role"
+  [[ -z "$MONITORING_PUBLIC_IP" ]] && die "Failed to fetch /lgtm/monitoring_server_public_ip from SSM — check instance IAM role"
   ok "Secrets and config fetched from SSM (app server: ${APP_SERVER_IP})"
 else
   info "IMDS not reachable after 50s — falling back to environment variables"
@@ -1309,7 +1311,7 @@ groups:
           summary:       "High CPU on {{ $labels.instance }}"
           description:   "CPU at {{ $value | printf \"%.1f\" }}% for >5m (threshold: 80%)"
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu-high.md"
-          dashboard_url: "http://localhost:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       - alert: CPUCritical
         expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
@@ -1320,7 +1322,7 @@ groups:
           summary:       "Critical CPU on {{ $labels.instance }}"
           description:   "CPU at {{ $value | printf \"%.1f\" }}% for >10m (threshold: 90%)"
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu-high.md"
-          dashboard_url: "http://localhost:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       # ── Memory ─────────────────────────────────────────────────────────────
       - alert: MemoryHighWarning
@@ -1332,7 +1334,7 @@ groups:
           summary:       "High memory on {{ $labels.instance }}"
           description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 80%)"
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory-high.md"
-          dashboard_url: "http://localhost:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       - alert: MemoryCritical
         expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
@@ -1343,7 +1345,7 @@ groups:
           summary:       "Critical memory on {{ $labels.instance }}"
           description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 90%)"
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory-high.md"
-          dashboard_url: "http://localhost:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       # ── Disk ───────────────────────────────────────────────────────────────
       - alert: DiskSpaceWarning
@@ -1355,7 +1357,7 @@ groups:
           summary:       "Disk space warning on {{ $labels.instance }}:{{ $labels.mountpoint }}"
           description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 75%)"
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk-space.md"
-          dashboard_url: "http://localhost:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       - alert: DiskSpaceCritical
         expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|devtmpfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|devtmpfs"})) * 100 > 90
@@ -1366,7 +1368,7 @@ groups:
           summary:       "Critical disk on {{ $labels.instance }}:{{ $labels.mountpoint }}"
           description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 90%)"
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk-space.md"
-          dashboard_url: "http://localhost:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       # ── Service downtime ───────────────────────────────────────────────────
       - alert: ServiceDown
@@ -1378,7 +1380,7 @@ groups:
           summary:       "Service down: {{ $labels.instance }}"
           description:   "Blackbox probe failing for {{ $labels.instance }} for >2m"
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/service-down.md"
-          dashboard_url: "http://localhost:3000/d/infrastructure/blackbox"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/blackbox"
 EOF
 
 info "Writing SLO burn rate alert rules..."
@@ -1406,7 +1408,7 @@ groups:
           summary:       "SLO Fast Burn: availability budget burning at >14.4x"
           description:   "At this rate the 30-day error budget will be exhausted in ~2 days. Act immediately."
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo-burn-rate.md"
-          dashboard_url: "http://localhost:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/reliability/slo-error-budget"
 
       - alert: AvailabilitySLOSlowBurn
         expr: |
@@ -1425,7 +1427,7 @@ groups:
           summary:       "SLO Slow Burn: availability budget draining at >5x"
           description:   "Needs attention before it escalates to fast burn."
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo-burn-rate.md"
-          dashboard_url: "http://localhost:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/reliability/slo-error-budget"
 
       # ── Latency SLO: 95% of requests < 500ms ─────────────────────────────
 
@@ -1446,7 +1448,7 @@ groups:
           summary:       "SLO Fast Burn: latency budget burning at >14.4x"
           description:   "More requests than allowed are exceeding 500ms. Fast burn on latency SLO."
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo-burn-rate.md"
-          dashboard_url: "http://localhost:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/reliability/slo-error-budget"
 
       - alert: LatencySLOSlowBurn
         expr: |
@@ -1465,7 +1467,7 @@ groups:
           summary:       "SLO Slow Burn: latency budget draining at >5x"
           description:   "Latency SLO slow burn over 6h window. Review recent deployments."
           runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo-burn-rate.md"
-          dashboard_url: "http://localhost:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/reliability/slo-error-budget"
 EOF
 
 info "Validating Prometheus config with promtool..."
@@ -1752,6 +1754,7 @@ storage:
       path: /var/lib/lgtm/tempo/traces
     wal:
       path: /var/lib/lgtm/tempo/wal
+
 
 overrides:
   defaults:
@@ -2214,6 +2217,7 @@ ExecStart=/opt/lgtm/prometheus/prometheus \
   --web.listen-address=127.0.0.1:9090 \
   --web.enable-lifecycle \
   --web.enable-admin-api \
+  --web.enable-remote-write-receiver \
   --log.level=warn
 
 # Live config reload without restart: curl -X POST http://localhost:9090/-/reload

@@ -301,6 +301,12 @@ resource "aws_ssm_parameter" "monitoring_server_ip" {
   value = aws_instance.monitoring.private_ip
 }
 
+resource "aws_ssm_parameter" "monitoring_server_public_ip" {
+  name  = "/lgtm/monitoring_server_public_ip"
+  type  = "String"
+  value = aws_eip.monitoring.public_ip
+}
+
 resource "aws_ssm_parameter" "app_server_ip" {
   name  = "/lgtm/app_server_ip"
   type  = "String"
@@ -518,7 +524,7 @@ resource "null_resource" "bootstrap_app" {
 # that resource already exists, we track the dependency via a separate trigger.
 resource "null_resource" "monitoring_ssm_ready" {
   triggers = {
-    app_server_ip       = aws_ssm_parameter.app_server_ip.value
+    app_server_ip        = aws_ssm_parameter.app_server_ip.value
     monitoring_server_ip = aws_ssm_parameter.monitoring_server_ip.value
   }
 }

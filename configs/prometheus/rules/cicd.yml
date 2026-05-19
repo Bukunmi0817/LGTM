@@ -16,7 +16,7 @@ groups:
             The most recent deployment on branch {{ $labels.branch }} failed
             (commit: {{ $labels.commit }}). CFR is incrementing.
             Check GitHub Actions logs and consider a rollback.
-          dashboard_url: "http://13.61.147.12:3000/d/dora-metrics/dora-metrics"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/dora-metrics/dora-metrics"
           runbook_url: "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cfr_threshold.md"
 
       # Fires when rolling 30-day CFR exceeds 15% SLO threshold for 5 minutes.
@@ -38,7 +38,7 @@ groups:
           description: >
             CFR is {{ $value | printf "%.1f" }}% over the last 30 days.
             SLO threshold: 15%. A reliability sprint may be required.
-          dashboard_url: "http://13.61.147.12:3000/d/dora-metrics/dora-metrics"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/dora-metrics/dora-metrics"
           runbook_url: "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cfr_threshold.md"
 
       # Fires when the last recorded incident MTTR exceeded 4 hours.
@@ -56,5 +56,5 @@ groups:
           description: >
             Last incident MTTR was {{ $value | humanizeDuration }}.
             SLO target: under 4 hours. Document where manual steps added time.
-          dashboard_url: "http://13.61.147.12:3000/d/dora-metrics/dora-metrics"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/dora-metrics/dora-metrics"
           runbook_url: "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/mttr_exceeded.md"
