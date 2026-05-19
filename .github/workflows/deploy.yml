@@ -63,85 +63,26 @@ jobs:
       - name: Push DORA metrics to Pushgateway
         if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
         env:
-          RUN_ID:     ${{ github.run_id }}
-          BRANCH:     ${{ github.ref_name }}
-          REPO:       ${{ github.repository }}
-          WORKFLOW:   ${{ github.workflow }}
-          COMMIT_SHA: ${{ github.sha }}
-          JOB_STATUS: ${{ job.status }}
+          MONITOR_SERVER_IP: ${{ secrets.MONITOR_SERVER_IP }}
+          RUN_ID:            ${{ github.run_id }}
+          BRANCH:            ${{ github.ref_name }}
+          REPO:              ${{ github.repository }}
+          WORKFLOW:          ${{ github.workflow }}
+          COMMIT_SHA:        ${{ github.sha }}
+          JOB_STATUS:        ${{ job.status }}
         run: |
           DEPLOY_END=$(date +%s)
           COMMIT_TIME=$(git log -1 --format=%ct)
           PIPELINE_START="${PIPELINE_START:-$COMMIT_TIME}"
           VALIDATION_END="${VALIDATION_END:-$PIPELINE_START}"
-          LEAD_TIME_TOTAL=$((DEPLOY_END - COMMIT_TIME))
-          LEAD_TIME_COMMIT_TO_TRIGGER=$((PIPELINE_START - COMMIT_TIME))
-          LEAD_TIME_TRIGGER_TO_BUILD=$((VALIDATION_END - PIPELINE_START))
-          LEAD_TIME_BUILD_TO_DEPLOY=$((DEPLOY_END - VALIDATION_END))
-          if [ "$JOB_STATUS" = "success" ]; then STATUS_VALUE=0; else STATUS_VALUE=1; fi
 
-          python3 - << PYEOF
-          import urllib.request, os
-          run_id    = os.environ["RUN_ID"]
-          branch    = os.environ["BRANCH"]
-          repo      = os.environ["REPO"]
-          workflow  = os.environ["WORKFLOW"]
-          commit    = os.environ["COMMIT_SHA"]
-          status    = os.environ["JOB_STATUS"]
-          monitor   = "${{ secrets.MONITOR_SERVER_IP }}"
-          deploy_end               = ${DEPLOY_END}
-          lead_time_total          = ${LEAD_TIME_TOTAL}
-          lead_time_commit_trigger = ${LEAD_TIME_COMMIT_TO_TRIGGER}
-          lead_time_trigger_build  = ${LEAD_TIME_TRIGGER_TO_BUILD}
-          lead_time_build_deploy   = ${LEAD_TIME_BUILD_TO_DEPLOY}
-          status_value             = ${STATUS_VALUE}
+          export DEPLOY_END
+          export LEAD_TIME_TOTAL=$((DEPLOY_END - COMMIT_TIME))
+          export LEAD_TIME_COMMIT_TO_TRIGGER=$((PIPELINE_START - COMMIT_TIME))
+          export LEAD_TIME_TRIGGER_TO_BUILD=$((VALIDATION_END - PIPELINE_START))
+          export LEAD_TIME_BUILD_TO_DEPLOY=$((DEPLOY_END - VALIDATION_END))
 
-          run_metrics = f"""# HELP github_deploy_timestamp_seconds Unix timestamp of this run
-# TYPE github_deploy_timestamp_seconds gauge
-github_deploy_timestamp_seconds{{runid="{run_id}",branch="{branch}",status="{status}",repo="{repo}"}} {deploy_end}
-# HELP github_deploy_lead_time_seconds Total lead time
-# TYPE github_deploy_lead_time_seconds gauge
-github_deploy_lead_time_seconds{{runid="{run_id}",branch="{branch}"}} {lead_time_total}
-# HELP github_deploy_commit_to_trigger_seconds Commit to trigger
-# TYPE github_deploy_commit_to_trigger_seconds gauge
-github_deploy_commit_to_trigger_seconds{{runid="{run_id}",branch="{branch}"}} {lead_time_commit_trigger}
-# HELP github_deploy_trigger_to_build_seconds Trigger to build
-# TYPE github_deploy_trigger_to_build_seconds gauge
-github_deploy_trigger_to_build_seconds{{runid="{run_id}",branch="{branch}"}} {lead_time_trigger_build}
-# HELP github_deploy_build_to_deploy_seconds Build to deploy
-# TYPE github_deploy_build_to_deploy_seconds gauge
-github_deploy_build_to_deploy_seconds{{runid="{run_id}",branch="{branch}"}} {lead_time_build_deploy}
-"""
-
-          latest_metrics = f"""# HELP github_last_deploy_status Last deploy status 0=success 1=failure
-# TYPE github_last_deploy_status gauge
-github_last_deploy_status{{branch="{branch}",workflow="{workflow}",commit="{commit}"}} {status_value}
-# HELP github_last_deploy_timestamp_seconds Last deploy timestamp
-# TYPE github_last_deploy_timestamp_seconds gauge
-github_last_deploy_timestamp_seconds{{branch="{branch}"}} {deploy_end}
-"""
-
-          base = f"http://{monitor}:9091/metrics"
-          try:
-              req = urllib.request.Request(
-                  f"{base}/job/github-deploy/runid/{run_id}",
-                  data=run_metrics.encode(), method="POST"
-              )
-              urllib.request.urlopen(req, timeout=10)
-              print("Per-run metrics pushed")
-          except Exception as e:
-              print(f"Warning: per-run push failed: {e}")
-
-          try:
-              req = urllib.request.Request(
-                  f"{base}/job/github-deploy-latest/branch/{branch}",
-                  data=latest_metrics.encode(), method="POST"
-              )
-              urllib.request.urlopen(req, timeout=10)
-              print("Latest metrics pushed")
-          except Exception as e:
-              print(f"Warning: latest push failed: {e}")
-          PYEOF
+          python3 scripts/push_dora_metrics.py
 
           echo "--- Deployment summary ---"
           echo "  Status:             ${JOB_STATUS}"
