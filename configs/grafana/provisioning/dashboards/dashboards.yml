@@ -1,12 +1,12 @@
 apiVersion: 1
 
 providers:
-  - name: "LGTM Dashboards"
-    orgId: 1
-    type: file
-    disableDeletion: true
+  - name:                  "lgtm-dashboards"
+    orgId:                 1
+    type:                  file
+    disableDeletion:       true
     updateIntervalSeconds: 30
-    allowUiUpdates: false
+    allowUiUpdates:        false
     options:
-      path: /var/lib/grafana/dashboards
-      foldersFromFilesStructure: true
+      path:                        /etc/lgtm/grafana/dashboards
+      foldersFromFilesStructure:   true

@@ -1,34 +1,32 @@
-{{ define "slack.title" }}
-  {{- if eq .Status "firing" -}}
-    {{- if eq (index .Alerts 0).Labels.severity "critical" -}}
-    :rotating_light: *CRITICAL* — {{ (index .Alerts 0).Annotations.summary }}
-    {{- else if eq (index .Alerts 0).Labels.severity "warning" -}}
-    :warning: *WARNING* — {{ (index .Alerts 0).Annotations.summary }}
-    {{- else -}}
-    :information_source: *INFO* — {{ (index .Alerts 0).Annotations.summary }}
-    {{- end -}}
-  {{- else -}}
-    :white_check_mark: *RESOLVED* — {{ (index .Alerts 0).Annotations.summary }}
-  {{- end -}}
-{{ end }}
+{{ define "slack.title" -}}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}
+{{- end }}
 
-{{ define "slack.text" }}
+{{ define "slack.color" -}}
+{{ if eq .Status "resolved" }}good
+{{ else if eq .CommonLabels.severity "critical" }}danger
+{{ else if eq .CommonLabels.severity "warning" }}warning
+{{ else }}#439FE0{{ end }}
+{{- end }}
+
+{{ define "slack.icon" -}}
+{{ if eq .Status "resolved" }}:white_check_mark:
+{{ else if eq .CommonLabels.severity "critical" }}:red_circle:
+{{ else if eq .CommonLabels.severity "warning" }}:warning:
+{{ else }}:information_source:{{ end }}
+{{- end }}
+
+{{ define "slack.body" -}}
 {{ range .Alerts }}
-*Status:* {{ if eq $.Status "firing" }}:red_circle: FIRING{{ else }}:large_green_circle: RESOLVED{{ end }}
-*Severity:* `{{ .Labels.severity | toUpper }}`
-*Alert:* `{{ .Labels.alertname }}`
-*Host:* `{{ if .Labels.instance }}{{ .Labels.instance }}{{ else }}N/A{{ end }}`
-*Detail:* {{ .Annotations.description }}
-*Started:* {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
-{{ if eq $.Status "resolved" }}*Resolved:* {{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}{{ end }}
-{{ if .Annotations.dashboard_url }}:bar_chart: <{{ .Annotations.dashboard_url }}|View Dashboard>  {{ end }}{{ if .Annotations.runbook_url }}:book: <{{ .Annotations.runbook_url }}|Open Runbook>{{ end }}
+*Alert:*     {{ .Annotations.summary }}
+*Severity:*  {{ .Labels.severity | toUpper }}
+*Host:*      {{ if .Labels.instance }}{{ .Labels.instance }}{{ else }}N/A{{ end }}
+*Status:*    {{ if eq $.Status "resolved" }}:white_check_mark: RESOLVED{{ else }}:fire: FIRING{{ end }}
+*Detail:*    {{ .Annotations.description }}
+{{ if .Annotations.dashboard_url }}*Dashboard:* <{{ .Annotations.dashboard_url }}|Open in Grafana>{{ end }}
+{{ if .Annotations.runbook_url }}*Runbook:*   <{{ .Annotations.runbook_url }}|View Runbook>{{ end }}
+*Fired:*     {{ .StartsAt | since }}{{ if eq $.Status "resolved" }}
+*Resolved:*  {{ .EndsAt | since }}{{ end }}
 ---
 {{ end }}
-{{ end }}
-
-{{ define "slack.color" }}
-  {{- if eq .Status "resolved" -}}good
-  {{- else if eq (index .Alerts 0).Labels.severity "critical" -}}danger
-  {{- else if eq (index .Alerts 0).Labels.severity "warning" -}}warning
-  {{- else -}}#439FE0{{- end -}}
-{{ end }}
+{{- end }}

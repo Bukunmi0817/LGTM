@@ -2,96 +2,84 @@ groups:
   - name: infrastructure.rules
     interval: 15s
     rules:
-      - alert: CPUWarning
-        expr: (1 - avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100 > 80
+
+      # ── CPU ────────────────────────────────────────────────────────────────
+      - alert: CPUHighWarning
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
         for: 5m
         labels:
           severity: warning
-          team: devops
         annotations:
-          summary: "CPU warning on {{ $labels.instance }}"
-          description: "CPU is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}. Threshold: 80%."
-          dashboard_url: "http://13.61.147.12:3000/d/node-exporter/node-exporter"
-          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu_warning.md"
+          summary:       "High CPU on {{ $labels.instance }}"
+          description:   "CPU at {{ $value | printf \"%.1f\" }}% for >5m (threshold: 80%)"
+          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu-high.md"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       - alert: CPUCritical
-        expr: (1 - avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100 > 90
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
         for: 10m
         labels:
           severity: critical
-          team: devops
         annotations:
-          summary: "CPU CRITICAL on {{ $labels.instance }}"
-          description: "CPU is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}. Threshold: 90%."
-          dashboard_url: "http://13.61.147.12:3000/d/node-exporter/node-exporter"
-          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu_critical.md"
+          summary:       "Critical CPU on {{ $labels.instance }}"
+          description:   "CPU at {{ $value | printf \"%.1f\" }}% for >10m (threshold: 90%)"
+          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu-high.md"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
-      - alert: MemoryWarning
+      # ── Memory ─────────────────────────────────────────────────────────────
+      - alert: MemoryHighWarning
         expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
         for: 5m
         labels:
           severity: warning
-          team: devops
         annotations:
-          summary: "Memory warning on {{ $labels.instance }}"
-          description: "Memory is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}. Threshold: 80%."
-          dashboard_url: "http://13.61.147.12:3000/d/node-exporter/node-exporter"
-          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory_warning.md"
+          summary:       "High memory on {{ $labels.instance }}"
+          description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 80%)"
+          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory-high.md"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       - alert: MemoryCritical
         expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
         for: 5m
         labels:
           severity: critical
-          team: devops
         annotations:
-          summary: "Memory CRITICAL on {{ $labels.instance }}"
-          description: "Memory is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}. Threshold: 90%."
-          dashboard_url: "http://13.61.147.12:3000/d/node-exporter/node-exporter"
-          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory_critical.md"
+          summary:       "Critical memory on {{ $labels.instance }}"
+          description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 90%)"
+          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory-high.md"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
-      - alert: DiskWarning
-        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|fuse.lxcfs|squashfs"})) * 100 > 75
+      # ── Disk ───────────────────────────────────────────────────────────────
+      - alert: DiskSpaceWarning
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|devtmpfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|devtmpfs"})) * 100 > 75
         for: 5m
         labels:
           severity: warning
-          team: devops
         annotations:
-          summary: "Disk warning on {{ $labels.instance }}"
-          description: "Disk is {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }}. Threshold: 75%."
-          dashboard_url: "http://13.61.147.12:3000/d/node-exporter/node-exporter"
-          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk_warning.md"
+          summary:       "Disk space warning on {{ $labels.instance }}:{{ $labels.mountpoint }}"
+          description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 75%)"
+          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk-space.md"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
-      - alert: DiskCritical
-        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|fuse.lxcfs|squashfs"})) * 100 > 90
+      - alert: DiskSpaceCritical
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|devtmpfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|devtmpfs"})) * 100 > 90
         for: 5m
         labels:
           severity: critical
-          team: devops
         annotations:
-          summary: "Disk CRITICAL on {{ $labels.instance }}"
-          description: "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }}. Disk full imminent."
-          dashboard_url: "http://13.61.147.12:3000/d/node-exporter/node-exporter"
-          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk_critical.md"
+          summary:       "Critical disk on {{ $labels.instance }}:{{ $labels.mountpoint }}"
+          description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 90%)"
+          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk-space.md"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
-      - alert: ServerDown
+      # ── Service downtime ───────────────────────────────────────────────────
+      - alert: ServiceDown
         expr: probe_success == 0
         for: 2m
         labels:
           severity: critical
-          team: devops
         annotations:
-          summary: "Service unreachable: {{ $labels.instance }}"
-          description: "Blackbox probe failing for 2+ minutes on {{ $labels.instance }}."
-          dashboard_url: "http://13.61.147.12:3000/d/blackbox/blackbox-exporter"
-          runbook_url: "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/server_downtime.md"
-
-      - alert: ServerRecovered
-        expr: probe_success == 1
-        for: 1m
-        labels:
-          severity: info
-          team: devops
-        annotations:
-          summary: "Service recovered: {{ $labels.instance }}"
-          description: "{{ $labels.instance }} is responding again."
+          summary:       "Service down: {{ $labels.instance }}"
+          description:   "Blackbox probe failing for {{ $labels.instance }} for >2m"
+          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/service-down.md"
+          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/blackbox"

@@ -1,0 +1,105 @@
+# =============================================================================
+# Prometheus configuration
+# Scrape interval: 15s (industry standard default)
+# Retention: controlled by --storage.tsdb.retention.time in the unit file.
+# =============================================================================
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  scrape_timeout:      10s
+  external_labels:
+    environment: "production"
+    team:        "devops"
+
+rule_files:
+  - "/etc/lgtm/prometheus/rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "127.0.0.1:9093"
+      timeout: 10s
+
+scrape_configs:
+
+  # ── Prometheus self-monitoring ───────────────────────────────────────────
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+
+  # ── App server OS metrics — Node Exporter ────────────────────────────────
+  - job_name: "node-exporter"
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["${APP_SERVER_IP}:9100"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  instance
+        regex:         "([^:]+).*"
+        replacement:   "$1"
+
+  # ── App server application metrics — fake-service ────────────────────────
+  - job_name: "fake-service"
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["${APP_SERVER_IP}:8080"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  instance
+        regex:         "([^:]+).*"
+        replacement:   "$1"
+
+  # ── HTTP/SSL probing — Blackbox Exporter ─────────────────────────────────
+  - job_name: "blackbox-http"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - "http://${APP_SERVER_IP}:8080/health"
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  __param_target
+      - source_labels: [__param_target]
+        target_label:  instance
+      - target_label:  __address__
+        replacement:   "127.0.0.1:9115"
+
+  # ── SSL certificate expiry probing ───────────────────────────────────────
+  - job_name: "blackbox-ssl"
+    metrics_path: /probe
+    params:
+      module: [ssl_expiry]
+    static_configs:
+      - targets:
+          - google.com:443
+          - github.com:443
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label:  __param_target
+      - source_labels: [__param_target]
+        target_label:  instance
+      - target_label:  __address__
+        replacement:   "127.0.0.1:9115"
+
+  # ── Alertmanager self-monitoring ─────────────────────────────────────────
+  - job_name: "alertmanager"
+    static_configs:
+      - targets: ["127.0.0.1:9093"]
+
+  # ── Grafana self-monitoring ───────────────────────────────────────────────
+  - job_name: "grafana"
+    static_configs:
+      - targets: ["127.0.0.1:3000"]
+
+  # ── Loki self-monitoring ─────────────────────────────────────────────────
+  - job_name: "loki"
+    static_configs:
+      - targets: ["127.0.0.1:3100"]
+
+  # ── Tempo self-monitoring ────────────────────────────────────────────────
+  - job_name: "tempo"
+    static_configs:
+      - targets: ["127.0.0.1:3200"]
