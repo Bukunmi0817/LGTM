@@ -1,45 +1,11 @@
 #!/usr/bin/env python3
 """
-Push DORA metrics to Pushgateway.
-Reads DuckDNS subdomain from AWS SSM to build Pushgateway URL dynamically.
-Works for any team member running terraform apply with their own subdomain.
+Push DORA metrics directly to Pushgateway via HTTP.
+Pushgateway is reachable via DuckDNS domain — no secrets or IPs needed.
 """
 import urllib.request
 import os
 import sys
-import subprocess
-
-def get_ssm(name):
-    region = os.environ.get("AWS_REGION", "eu-north-1")
-    try:
-        result = subprocess.run([
-            "aws", "ssm", "get-parameter",
-            "--name", name,
-            "--query", "Parameter.Value",
-            "--output", "text",
-            "--region", region
-        ], capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
-            return result.stdout.strip()
-        return None
-    except Exception as e:
-        print(f"SSM read failed for {name}: {e}")
-        return None
-
-def get_monitor_host():
-    # Try SSM first (fully automatic)
-    subdomain = get_ssm("/lgtm/duckdns_subdomain")
-    if subdomain:
-        host = f"{subdomain}.duckdns.org"
-        print(f"Pushgateway host from SSM: {host}")
-        return host
-    # Fallback to env var
-    host = os.environ.get("MONITOR_SERVER_IP", "")
-    if host:
-        print(f"Pushgateway host from env: {host}")
-        return host
-    print("Could not determine Pushgateway host — skipping metrics push")
-    return None
 
 def push(url, data):
     try:
@@ -51,10 +17,7 @@ def push(url, data):
         print(f"Warning: push failed to {url}: {e}")
         return False
 
-monitor = get_monitor_host()
-if not monitor:
-    sys.exit(0)
-
+monitor  = os.environ.get("MONITOR_SERVER_IP", "adeshipo-lgtm.duckdns.org")
 run_id   = os.environ.get("RUN_ID", "")
 branch   = os.environ.get("BRANCH", "main")
 repo     = os.environ.get("REPO", "")

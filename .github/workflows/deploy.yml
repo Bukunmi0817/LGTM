@@ -47,14 +47,6 @@ jobs:
         if: always()
         run: echo "VALIDATION_END=$(date +%s)" >> $GITHUB_ENV
 
-      - name: Configure AWS credentials
-        if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            eu-north-1
-
       - name: Push DORA metrics to Pushgateway
         if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
         env:
