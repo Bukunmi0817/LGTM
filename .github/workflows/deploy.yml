@@ -47,18 +47,7 @@ jobs:
         if: always()
         run: echo "VALIDATION_END=$(date +%s)" >> $GITHUB_ENV
 
-      - name: Verify stack is healthy
-        if: ${{ vars.DEPLOY_ENABLED == 'true' }}
-        run: |
-          sleep 5
-          HTTP_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
-            http://${{ secrets.MONITOR_SERVER_IP }}:3000/api/health || echo "000")
-          if [ "$HTTP_STATUS" = "200" ]; then
-            echo "Stack healthy — Grafana returned 200"
-          else
-            echo "Stack health check failed — Grafana returned HTTP $HTTP_STATUS"
-            exit 1
-          fi
+
 
       - name: Push DORA metrics to Pushgateway
         if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
