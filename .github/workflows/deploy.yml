@@ -108,6 +108,7 @@ jobs:
       - name: Push DORA metrics to Pushgateway
         if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
         env:
+          PUSHGATEWAY_URL: "http://${{ secrets.MONITOR_SERVER_IP }}:9091"
           RUN_ID:     ${{ github.run_id }}
           BRANCH:     ${{ github.ref_name }}
           REPO:       ${{ github.repository }}
@@ -152,17 +153,11 @@ jobs:
           github_last_deploy_timestamp_seconds{branch="${BRANCH}"} ${DEPLOY_END}
           LATEST
 
-          scp -i ~/.ssh/monitor_key /tmp/dora_run.txt /tmp/dora_latest.txt \
-            ubuntu@${{ secrets.MONITOR_SERVER_IP }}:/tmp/
-
-          ssh -i ~/.ssh/monitor_key ubuntu@${{ secrets.MONITOR_SERVER_IP }} "
-            curl -sf --data-binary @/tmp/dora_run.txt \
-              http://localhost:9091/metrics/job/github-deploy/runid/${RUN_ID} &&
-            curl -sf --data-binary @/tmp/dora_latest.txt \
-              http://localhost:9091/metrics/job/github-deploy-latest/branch/${BRANCH} &&
-            rm -f /tmp/dora_run.txt /tmp/dora_latest.txt &&
-            echo 'DORA metrics pushed to Pushgateway'
-          "
+          curl -sf --data-binary @/tmp/dora_run.txt \
+            "${PUSHGATEWAY_URL}/metrics/job/github-deploy/runid/${RUN_ID}"
+          curl -sf --data-binary @/tmp/dora_latest.txt \
+            "${PUSHGATEWAY_URL}/metrics/job/github-deploy-latest/branch/${BRANCH}"
+          echo "DORA metrics pushed to Pushgateway"
 
           echo "--- Deployment summary ---"
           echo "  Status:             ${JOB_STATUS}"

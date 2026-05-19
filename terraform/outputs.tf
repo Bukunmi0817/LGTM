@@ -26,7 +26,18 @@ output "tempo_url" {
 
 output "pushgateway_url" {
   value       = "http://${aws_eip.monitoring.public_ip}:9091"
-  description = "Push DORA metrics here from GitHub Actions"
+  description = "Push DORA metrics here from GitHub Actions — store as PUSHGATEWAY_URL secret"
+}
+
+# ── GitHub Actions secrets ─────────────────────────────────────────────────────
+# Run `terraform output github_actions_secrets` after apply to get the exact
+# values to paste into: GitHub repo → Settings → Secrets and variables → Actions
+output "github_actions_secrets" {
+  value = {
+    MONITOR_SERVER_IP = aws_eip.monitoring.public_ip
+    PUSHGATEWAY_URL   = "http://${aws_eip.monitoring.public_ip}:9091"
+  }
+  description = "Values to store as GitHub Actions secrets. MONITOR_SSH_KEY must be set manually (private key content)."
 }
 
 output "ssh_command" {
