@@ -47,14 +47,6 @@ jobs:
         if: always()
         run: echo "VALIDATION_END=$(date +%s)" >> $GITHUB_ENV
 
-      - name: Set up monitoring server SSH key
-        if: ${{ vars.DEPLOY_ENABLED == 'true' }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.MONITOR_SSH_KEY }}" > ~/.ssh/monitor_key
-          chmod 600 ~/.ssh/monitor_key
-          ssh-keyscan -H ${{ secrets.MONITOR_SERVER_IP }} >> ~/.ssh/known_hosts
-
       - name: Upload updated configs to monitoring server
         if: ${{ vars.DEPLOY_ENABLED == 'true' }}
         run: |
@@ -151,17 +143,13 @@ jobs:
           github_last_deploy_timestamp_seconds{branch="${BRANCH}"} ${DEPLOY_END}
           LATEST
 
-          scp -i ~/.ssh/monitor_key /tmp/dora_run.txt /tmp/dora_latest.txt \
-            ubuntu@${{ secrets.MONITOR_SERVER_IP }}:/tmp/
-
-          ssh -i ~/.ssh/monitor_key ubuntu@${{ secrets.MONITOR_SERVER_IP }} "
-            curl -sf --data-binary @/tmp/dora_run.txt \
-              http://localhost:9091/metrics/job/github-deploy/runid/${RUN_ID} &&
-            curl -sf --data-binary @/tmp/dora_latest.txt \
-              http://localhost:9091/metrics/job/github-deploy-latest/branch/${BRANCH} &&
-            rm -f /tmp/dora_run.txt /tmp/dora_latest.txt &&
-            echo 'DORA metrics pushed to Pushgateway'
-          "
+          # Push directly to Pushgateway via HTTP — no SSH needed.
+          # MONITOR_SERVER_IP is the Elastic IP — never changes between rebuilds.
+          curl -sf --data-binary @/tmp/dora_run.txt \
+            http://${{ secrets.MONITOR_SERVER_IP }}:9091/metrics/job/github-deploy/runid/${RUN_ID}
+          curl -sf --data-binary @/tmp/dora_latest.txt \
+            http://${{ secrets.MONITOR_SERVER_IP }}:9091/metrics/job/github-deploy-latest/branch/${BRANCH}
+          echo "DORA metrics pushed directly to Pushgateway" 
 
           echo "--- Deployment summary ---"
           echo "  Status:             ${JOB_STATUS}"
