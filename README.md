@@ -508,3 +508,6 @@ Then verify the live rule in the AWS console under EC2 → Security Groups → `
 1. Check datasource health: **Connections → Data sources** → test each datasource
 2. Confirm Prometheus has data: open `http://<monitoring-ip>:9090/graph` and query `up`
 3. Confirm fake-service is emitting metrics: `curl http://<app-ip>:8080/metrics | head -20`
+
+
+Read this [article](https://medium.com/@gideonisbuilding/building-a-production-grade-lgtm-stack-on-two-servers-everything-that-worked-and-everything-that-78fbc1f4e881?postPublishedType=repub) for more breakdowns
