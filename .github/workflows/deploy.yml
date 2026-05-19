@@ -47,6 +47,14 @@ jobs:
         if: always()
         run: echo "VALIDATION_END=$(date +%s)" >> $GITHUB_ENV
 
+      - name: Configure AWS credentials
+        if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            eu-north-1
+
       - name: Push DORA metrics to Pushgateway
         if: ${{ always() && vars.DEPLOY_ENABLED == 'true' }}
         env:
@@ -67,8 +75,6 @@ jobs:
           export LEAD_TIME_COMMIT_TO_TRIGGER=$((PIPELINE_START - COMMIT_TIME))
           export LEAD_TIME_TRIGGER_TO_BUILD=$((VALIDATION_END - PIPELINE_START))
           export LEAD_TIME_BUILD_TO_DEPLOY=$((DEPLOY_END - VALIDATION_END))
-          export MONITOR_SERVER_IP="adeshipo-lgtm.duckdns.org"
-
           python3 scripts/push_dora_metrics.py
 
           echo "--- Deployment summary ---"
