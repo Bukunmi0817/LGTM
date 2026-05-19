@@ -2433,6 +2433,57 @@ if command -v ufw &>/dev/null; then
   ufw --force enable
   ok "ufw enabled: SSH, Grafana(:3000), Pushgateway(:9091), OTel(:3100/:4317/:4318 VPC-only) open"
 
+# ── DuckDNS auto-update on every boot ─────────────────────────────────────────
+section "DUCKDNS AUTO-UPDATE SERVICE"
+
+info "Writing DuckDNS update script..."
+cat > /usr/local/bin/duckdns-update.sh << 'DUCKSCRIPT'
+#!/bin/bash
+# Updates DuckDNS on every boot so the domain always points to this server.
+# Reads token and subdomain from AWS SSM Parameter Store.
+TOKEN=$(aws ssm get-parameter --name /lgtm/duckdns_token   --with-decryption --query Parameter.Value --output text 2>/dev/null)
+SUBDOMAIN=$(aws ssm get-parameter --name /lgtm/duckdns_subdomain   --query Parameter.Value --output text 2>/dev/null)
+IP=$(curl -sf https://checkip.amazonaws.com)
+
+if [[ -z "$TOKEN" || -z "$SUBDOMAIN" || -z "$IP" ]]; then
+  echo "[WARN] DuckDNS update skipped — missing TOKEN, SUBDOMAIN, or IP"
+  exit 0
+fi
+
+RESULT=$(curl -sf "https://www.duckdns.org/update?domains=${SUBDOMAIN}&token=${TOKEN}&ip=${IP}")
+if [[ "$RESULT" == "OK" ]]; then
+  echo "[OK] DuckDNS updated: ${SUBDOMAIN}.duckdns.org -> ${IP}"
+else
+  echo "[WARN] DuckDNS update failed: ${RESULT}"
+fi
+DUCKSCRIPT
+
+chmod +x /usr/local/bin/duckdns-update.sh
+ok "DuckDNS update script written: /usr/local/bin/duckdns-update.sh"
+
+info "Writing DuckDNS update systemd service..."
+cat > /etc/systemd/system/duckdns-update.service << 'DUCKUNIT'
+[Unit]
+Description=Update DuckDNS with current public IP on boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/duckdns-update.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+DUCKUNIT
+
+systemctl daemon-reload
+systemctl enable duckdns-update.service
+systemctl start duckdns-update.service
+ok "DuckDNS update service enabled and started"
+
   ufw status verbose
 else
   warn "ufw not installed — install with: apt-get install ufw"
