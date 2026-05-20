@@ -1311,7 +1311,7 @@ groups:
           summary:       "High CPU on {{ $labels.instance }}"
           description:   "CPU at {{ $value | printf \"%.1f\" }}% for >5m (threshold: 80%)"
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cpu.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/node-exporter/node-exporter"
 
       - alert: CPUCritical
         expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
@@ -1322,7 +1322,7 @@ groups:
           summary:       "Critical CPU on {{ $labels.instance }}"
           description:   "CPU at {{ $value | printf \"%.1f\" }}% for >10m (threshold: 90%)"
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cpu.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/node-exporter/node-exporter"
 
       # ── Memory ─────────────────────────────────────────────────────────────
       - alert: MemoryHighWarning
@@ -1334,7 +1334,7 @@ groups:
           summary:       "High memory on {{ $labels.instance }}"
           description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 80%)"
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/memory.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/node-exporter/node-exporter"
 
       - alert: MemoryCritical
         expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
@@ -1345,7 +1345,7 @@ groups:
           summary:       "Critical memory on {{ $labels.instance }}"
           description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 90%)"
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/memory.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/node-exporter/node-exporter"
 
       # ── Disk ───────────────────────────────────────────────────────────────
       - alert: DiskSpaceWarning
@@ -1357,7 +1357,7 @@ groups:
           summary:       "Disk space warning on {{ $labels.instance }}:{{ $labels.mountpoint }}"
           description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 75%)"
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/disk.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/node-exporter/node-exporter"
 
       - alert: DiskSpaceCritical
         expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|devtmpfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|devtmpfs"})) * 100 > 90
@@ -1368,7 +1368,7 @@ groups:
           summary:       "Critical disk on {{ $labels.instance }}:{{ $labels.mountpoint }}"
           description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 90%)"
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/disk.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/node-exporter/node-exporter"
 
       # ── Service downtime ───────────────────────────────────────────────────
       - alert: ServiceDown
@@ -1380,7 +1380,7 @@ groups:
           summary:       "Service down: {{ $labels.instance }}"
           description:   "Blackbox probe failing for {{ $labels.instance }} for >2m"
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/server_availability.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/blackbox"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/blackbox/blackbox-exporter"
 
       # ── SSL certificate expiry ─────────────────────────────────────────────
       - alert: SSLCertExpiringSoon
@@ -1392,7 +1392,7 @@ groups:
           summary:       "SSL cert expiring soon: {{ $labels.instance }}"
           description:   "Certificate for {{ $labels.instance }} expires in less than 14 days"
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/server_availability.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/blackbox"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/blackbox/blackbox-exporter"
 EOF
 
 info "Writing SLO burn rate alert rules..."
@@ -1420,7 +1420,7 @@ groups:
           summary:       "SLO Fast Burn: availability budget burning at >14.4x"
           description:   "At this rate the 30-day error budget will be exhausted in ~2 days. Act immediately."
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/slo-error-budget/slo-and-error-budget"
 
       - alert: AvailabilitySLOSlowBurn
         expr: |
@@ -1439,7 +1439,7 @@ groups:
           summary:       "SLO Slow Burn: availability budget draining at >5x"
           description:   "Needs attention before it escalates to fast burn."
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/slo-error-budget/slo-and-error-budget"
 
       # ── Latency SLO: 95% of requests < 500ms ─────────────────────────────
 
@@ -1460,7 +1460,7 @@ groups:
           summary:       "SLO Fast Burn: latency budget burning at >14.4x"
           description:   "More requests than allowed are exceeding 500ms. Fast burn on latency SLO."
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/slo-error-budget/slo-and-error-budget"
 
       - alert: LatencySLOSlowBurn
         expr: |
@@ -1479,7 +1479,7 @@ groups:
           summary:       "SLO Slow Burn: latency budget draining at >5x"
           description:   "Latency SLO slow burn over 6h window. Review recent deployments."
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/slo-error-budget/slo-and-error-budget"
 EOF
 
 info "Validating Prometheus config with promtool..."

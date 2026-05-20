@@ -21,7 +21,7 @@ groups:
           summary:       "SLO Fast Burn: availability budget burning at >14.4x"
           description:   "At this rate the 30-day error budget will be exhausted in ~2 days. Act immediately."
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/slo-error-budget/slo-and-error-budget"
 
       - alert: AvailabilitySLOSlowBurn
         expr: |
@@ -40,7 +40,7 @@ groups:
           summary:       "SLO Slow Burn: availability budget draining at >5x"
           description:   "Needs attention before it escalates to fast burn."
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/slo-error-budget/slo-and-error-budget"
 
       # ── Latency SLO: 95% of requests < 500ms ─────────────────────────────
 
@@ -61,7 +61,7 @@ groups:
           summary:       "SLO Fast Burn: latency budget burning at >14.4x"
           description:   "More requests than allowed are exceeding 500ms. Fast burn on latency SLO."
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/slo-error-budget/slo-and-error-budget"
 
       - alert: LatencySLOSlowBurn
         expr: |
@@ -80,4 +80,4 @@ groups:
           summary:       "SLO Slow Burn: latency budget draining at >5x"
           description:   "Latency SLO slow burn over 6h window. Review recent deployments."
           runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
-          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/reliability/slo-error-budget"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/slo-error-budget/slo-and-error-budget"
