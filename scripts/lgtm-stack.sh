@@ -1310,7 +1310,7 @@ groups:
         annotations:
           summary:       "High CPU on {{ $labels.instance }}"
           description:   "CPU at {{ $value | printf \"%.1f\" }}% for >5m (threshold: 80%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu-high.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cpu.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       - alert: CPUCritical
@@ -1321,7 +1321,7 @@ groups:
         annotations:
           summary:       "Critical CPU on {{ $labels.instance }}"
           description:   "CPU at {{ $value | printf \"%.1f\" }}% for >10m (threshold: 90%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu-high.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cpu.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       # ── Memory ─────────────────────────────────────────────────────────────
@@ -1333,7 +1333,7 @@ groups:
         annotations:
           summary:       "High memory on {{ $labels.instance }}"
           description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 80%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory-high.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/memory.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       - alert: MemoryCritical
@@ -1344,7 +1344,7 @@ groups:
         annotations:
           summary:       "Critical memory on {{ $labels.instance }}"
           description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 90%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory-high.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/memory.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       # ── Disk ───────────────────────────────────────────────────────────────
@@ -1356,7 +1356,7 @@ groups:
         annotations:
           summary:       "Disk space warning on {{ $labels.instance }}:{{ $labels.mountpoint }}"
           description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 75%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk-space.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/disk.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       - alert: DiskSpaceCritical
@@ -1367,7 +1367,7 @@ groups:
         annotations:
           summary:       "Critical disk on {{ $labels.instance }}:{{ $labels.mountpoint }}"
           description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 90%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk-space.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/disk.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
 
       # ── Service downtime ───────────────────────────────────────────────────
@@ -1379,7 +1379,7 @@ groups:
         annotations:
           summary:       "Service down: {{ $labels.instance }}"
           description:   "Blackbox probe failing for {{ $labels.instance }} for >2m"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/service-down.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/server_availability.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/blackbox"
 EOF
 
@@ -1407,7 +1407,7 @@ groups:
         annotations:
           summary:       "SLO Fast Burn: availability budget burning at >14.4x"
           description:   "At this rate the 30-day error budget will be exhausted in ~2 days. Act immediately."
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo-burn-rate.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/reliability/slo-error-budget"
 
       - alert: AvailabilitySLOSlowBurn
@@ -1426,7 +1426,7 @@ groups:
         annotations:
           summary:       "SLO Slow Burn: availability budget draining at >5x"
           description:   "Needs attention before it escalates to fast burn."
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo-burn-rate.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/reliability/slo-error-budget"
 
       # ── Latency SLO: 95% of requests < 500ms ─────────────────────────────
@@ -1447,7 +1447,7 @@ groups:
         annotations:
           summary:       "SLO Fast Burn: latency budget burning at >14.4x"
           description:   "More requests than allowed are exceeding 500ms. Fast burn on latency SLO."
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo-burn-rate.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/reliability/slo-error-budget"
 
       - alert: LatencySLOSlowBurn
@@ -1466,7 +1466,7 @@ groups:
         annotations:
           summary:       "SLO Slow Burn: latency budget draining at >5x"
           description:   "Latency SLO slow burn over 6h window. Review recent deployments."
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/slo-burn-rate.md"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/slo_burn_rate.md"
           dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/reliability/slo-error-budget"
 EOF
 

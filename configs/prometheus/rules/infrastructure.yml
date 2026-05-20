@@ -12,8 +12,8 @@ groups:
         annotations:
           summary:       "High CPU on {{ $labels.instance }}"
           description:   "CPU at {{ $value | printf \"%.1f\" }}% for >5m (threshold: 80%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu-high.md"
-          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cpu.md"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
 
       - alert: CPUCritical
         expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
@@ -23,8 +23,8 @@ groups:
         annotations:
           summary:       "Critical CPU on {{ $labels.instance }}"
           description:   "CPU at {{ $value | printf \"%.1f\" }}% for >10m (threshold: 90%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/cpu-high.md"
-          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cpu.md"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
 
       # ── Memory ─────────────────────────────────────────────────────────────
       - alert: MemoryHighWarning
@@ -35,8 +35,8 @@ groups:
         annotations:
           summary:       "High memory on {{ $labels.instance }}"
           description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 80%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory-high.md"
-          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/memory.md"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
 
       - alert: MemoryCritical
         expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
@@ -46,8 +46,8 @@ groups:
         annotations:
           summary:       "Critical memory on {{ $labels.instance }}"
           description:   "Memory at {{ $value | printf \"%.1f\" }}% (threshold: 90%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/memory-high.md"
-          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/memory.md"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
 
       # ── Disk ───────────────────────────────────────────────────────────────
       - alert: DiskSpaceWarning
@@ -58,8 +58,8 @@ groups:
         annotations:
           summary:       "Disk space warning on {{ $labels.instance }}:{{ $labels.mountpoint }}"
           description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 75%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk-space.md"
-          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/disk.md"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
 
       - alert: DiskSpaceCritical
         expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|devtmpfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|devtmpfs"})) * 100 > 90
@@ -69,8 +69,8 @@ groups:
         annotations:
           summary:       "Critical disk on {{ $labels.instance }}:{{ $labels.mountpoint }}"
           description:   "Disk at {{ $value | printf \"%.1f\" }}% on {{ $labels.mountpoint }} (threshold: 90%)"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/disk-space.md"
-          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/node-exporter"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/disk.md"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/node-exporter"
 
       # ── Service downtime ───────────────────────────────────────────────────
       - alert: ServiceDown
@@ -81,5 +81,5 @@ groups:
         annotations:
           summary:       "Service down: {{ $labels.instance }}"
           description:   "Blackbox probe failing for {{ $labels.instance }} for >2m"
-          runbook_url:   "https://github.com/YOUR_ORG/YOUR_REPO/blob/main/runbooks/service-down.md"
-          dashboard_url: "http://${MONITORING_PUBLIC_IP}:3000/d/infrastructure/blackbox"
+          runbook_url:   "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/server_availability.md"
+          dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/infrastructure/blackbox"

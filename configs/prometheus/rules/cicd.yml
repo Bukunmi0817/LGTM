@@ -17,7 +17,7 @@ groups:
             (commit: {{ $labels.commit }}). CFR is incrementing.
             Check GitHub Actions logs and consider a rollback.
           dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/dora-metrics/dora-metrics"
-          runbook_url: "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cfr_threshold.md"
+          runbook_url: "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cicd.md"
 
       # Fires when rolling 30-day CFR exceeds 15% SLO threshold for 5 minutes.
       # github_deploy_timestamp_seconds VALUE = unix timestamp of each run.
@@ -39,7 +39,7 @@ groups:
             CFR is {{ $value | printf "%.1f" }}% over the last 30 days.
             SLO threshold: 15%. A reliability sprint may be required.
           dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/dora-metrics/dora-metrics"
-          runbook_url: "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cfr_threshold.md"
+          runbook_url: "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cicd.md"
 
       # Fires when the last recorded incident MTTR exceeded 4 hours.
       # Push MTTR to Pushgateway after an incident resolves:
@@ -57,4 +57,4 @@ groups:
             Last incident MTTR was {{ $value | humanizeDuration }}.
             SLO target: under 4 hours. Document where manual steps added time.
           dashboard_url: "http://adeshipo-lgtm.duckdns.org:3000/d/dora-metrics/dora-metrics"
-          runbook_url: "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/mttr_exceeded.md"
+          runbook_url: "https://github.com/Bukunmi0817/LGTM/blob/main/runbooks/cicd.md"
