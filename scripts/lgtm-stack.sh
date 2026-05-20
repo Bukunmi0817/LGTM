@@ -1639,7 +1639,7 @@ write_config /etc/lgtm/alertmanager/templates/slack.tmpl root:alertmanager 640 <
 {{ range .Alerts }}
 *Alert:*     {{ .Annotations.summary }}
 *Severity:*  {{ .Labels.severity | toUpper }}
-*Host:*      {{ if .Labels.instance }}{{ .Labels.instance }}{{ else }}N/A{{ end }}
+*Host:*      {{ if .Labels.instance }}{{ .Labels.instance }}{{ else if .Labels.slo }}SLO: {{ .Labels.slo }}{{ else }}N/A{{ end }}
 *Status:*    {{ if eq $.Status "resolved" }}:white_check_mark: RESOLVED{{ else }}:fire: FIRING{{ end }}
 *Detail:*    {{ .Annotations.description }}
 {{ if .Annotations.dashboard_url }}*Dashboard:* <{{ .Annotations.dashboard_url }}|Open in Grafana>{{ end }}
